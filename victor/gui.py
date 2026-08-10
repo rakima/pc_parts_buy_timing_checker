@@ -367,7 +367,14 @@ class ProductDialog(tk.Toplevel):
             ("name", "商品名"), ("category", "カテゴリ"), ("url", "商品URL"), ("site", "取得サイト")
         )):
             ttk.Label(frame, text=caption).grid(row=row, column=0, sticky="w", pady=5)
-            ttk.Entry(frame, textvariable=self.variables[key], width=52).grid(row=row, column=1, pady=5)
+            if key == "site":
+                field = ttk.Combobox(
+                    frame, textvariable=self.variables[key], width=49,
+                    values=("汎用ECサイト", "ツクモ"), state="readonly",
+                )
+            else:
+                field = ttk.Entry(frame, textvariable=self.variables[key], width=52)
+            field.grid(row=row, column=1, pady=5)
         ttk.Checkbutton(frame, text="有効", variable=self.variables["enabled"]).grid(row=4, column=1, sticky="w", pady=5)
         actions = ttk.Frame(frame)
         actions.grid(row=5, column=0, columnspan=2, sticky="e", pady=(12, 0))
