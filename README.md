@@ -19,7 +19,11 @@ PCパーツの商品ページから現在価格を取得し、SQLiteに蓄積し
 - Python 3.11以降（`tkinter`を含むPython環境）
 - インターネット接続
 
-外部Pythonパッケージは使用しません。リポジトリを取得後、そのまま起動できます。
+画像を高品質に縮小表示するため、Pillowを使用します。
+
+```powershell
+python -m pip install -r requirements.txt
+```
 
 ## 起動方法
 

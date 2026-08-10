@@ -8,6 +8,8 @@ from pathlib import Path
 from tkinter import messagebox, ttk
 from urllib.parse import urlparse
 
+from PIL import Image, ImageTk
+
 from victor.database import VictorRepository
 from victor.evaluator import LABELS, MESSAGES
 from victor.models import EvaluationResult, Product, TimingStatus
@@ -61,7 +63,7 @@ class VictorApp(ttk.Frame):
         self.image_directory = image_directory
         self.logger = logger
         self.products: list[Product] = []
-        self.image_cache: dict[TimingStatus, tk.PhotoImage] = {}
+        self.image_cache: dict[TimingStatus, ImageTk.PhotoImage] = {}
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self._configure_theme()
         self._build_ui()
@@ -113,8 +115,8 @@ class VictorApp(ttk.Frame):
 
     def _build_ui(self) -> None:
         self.master.title("時期判定官 ヴィクトル")
-        self.master.geometry("1100x720")
-        self.master.minsize(900, 620)
+        self.master.geometry("1220x780")
+        self.master.minsize(1080, 680)
         self.pack(fill=tk.BOTH, expand=True)
         self.columnconfigure(1, weight=1)
         self.rowconfigure(1, weight=1)
@@ -148,15 +150,13 @@ class VictorApp(ttk.Frame):
         self.result_panel = right
         right.grid(row=1, column=1, sticky="nsew")
         right.columnconfigure(0, weight=1)
-        right.rowconfigure(1, weight=1)
         self.detail_title = ttk.Label(right, text="商品を選択してください", style="Heading.TLabel")
         self.detail_title.grid(row=0, column=0, sticky="w", pady=(0, 8))
 
         content = ttk.Frame(right, style="Wood.TFrame")
-        content.grid(row=1, column=0, sticky="nsew")
-        content.columnconfigure(1, weight=1)
+        content.grid(row=1, column=0, sticky="nw", pady=(4, 0))
         self.image_label = ttk.Label(content, anchor="center", style="Image.TLabel")
-        self.image_label.grid(row=0, column=0, rowspan=7, sticky="n", padx=(0, 18))
+        self.image_label.grid(row=0, column=0, rowspan=7, sticky="nw", padx=(0, 24))
         self.values: dict[str, ttk.Label] = {}
         for row, (key, caption) in enumerate((
             ("status", "判定"), ("current", "現在価格"), ("average", "30日平均"),
@@ -168,12 +168,12 @@ class VictorApp(ttk.Frame):
             self.values[key] = label
 
         self.message_label = ttk.Label(right, text="商品を選び、価格を調査してください。",
-                                       wraplength=600, style="Quote.TLabel")
-        self.message_label.grid(row=2, column=0, sticky="ew", pady=10)
+                                       wraplength=760, style="Quote.TLabel")
+        self.message_label.grid(row=2, column=0, sticky="ew", pady=(16, 8))
         self.progress_label = ttk.Label(right, text="", style="PanelMuted.TLabel")
         self.progress_label.grid(row=3, column=0, sticky="w")
         actions = ttk.Frame(right, style="Wood.TFrame")
-        actions.grid(row=4, column=0, sticky="ew", pady=(8, 0))
+        actions.grid(row=4, column=0, sticky="ew", pady=(12, 0))
         self.investigate_button = ttk.Button(actions, text="価格を調査する", style="Plate.TButton", command=self.investigate)
         self.investigate_button.pack(side=tk.LEFT)
         ttk.Button(actions, text="価格履歴", style="Plate.TButton", command=self.show_history).pack(side=tk.LEFT, padx=6)
@@ -301,19 +301,20 @@ class VictorApp(ttk.Frame):
         self.image_label.configure(image=image, text="" if image else f"ヴィクトル\n{LABELS[status]}")
         self.image_label.image = image
 
-    def _load_image(self, status: TimingStatus) -> tk.PhotoImage | None:
+    def _load_image(self, status: TimingStatus) -> ImageTk.PhotoImage | None:
         if status in self.image_cache:
             return self.image_cache[status]
         path = self.image_directory / IMAGE_FILES[status]
         if not path.exists():
             return None
         try:
-            original = tk.PhotoImage(file=path)
-            divisor = max(1, max(original.width(), original.height()) // 260)
-            image = original.subsample(divisor, divisor)
+            with Image.open(path) as original:
+                rendered = original.convert("RGB")
+                rendered.thumbnail((520, 440), Image.Resampling.LANCZOS)
+                image = ImageTk.PhotoImage(rendered, master=self.master)
             self.image_cache[status] = image
             return image
-        except tk.TclError:
+        except (OSError, tk.TclError):
             self.logger.exception("画像読み込み失敗 path=%s", path)
             return None
 
