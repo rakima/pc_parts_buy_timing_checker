@@ -7,7 +7,7 @@ from tkinter import messagebox
 from victor.config import SettingsManager
 from victor.database import VictorRepository
 from victor.evaluator import BuyTimingEvaluator
-from victor.fetchers import GenericHtmlPriceFetcher, PriceFetcherRegistry
+from victor.fetchers import GenericHtmlPriceFetcher, PriceFetcherRegistry, TsukumoPriceFetcher
 from victor.gui import VictorApp
 from victor.logging_config import configure_logging
 from victor.services import PriceInvestigationService
@@ -22,6 +22,10 @@ def main() -> None:
         repository = VictorRepository(root_directory / "data" / "victor.db")
         fetcher = GenericHtmlPriceFetcher(settings.user_agent, settings.request_timeout_seconds)
         registry = PriceFetcherRegistry(fetcher)
+        registry.register(
+            TsukumoPriceFetcher.SITE_NAME,
+            TsukumoPriceFetcher(settings.user_agent, settings.request_timeout_seconds),
+        )
         evaluator = BuyTimingEvaluator(settings.evaluation)
         service = PriceInvestigationService(
             repository, registry, evaluator, settings.evaluation.comparison_days, logger
