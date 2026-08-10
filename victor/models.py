@@ -6,6 +6,7 @@ from enum import StrEnum
 
 
 class TimingStatus(StrEnum):
+    WAITING = "waiting"
     RESEARCHING = "researching"
     BAD = "bad"
     INSUFFICIENT = "insufficient"
@@ -43,4 +44,3 @@ class EvaluationResult:
     average_price: float | None = None
     difference_percent: float | None = None
     lowest_price: int | None = None
-
