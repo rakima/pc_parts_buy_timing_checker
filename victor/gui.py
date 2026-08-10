@@ -25,6 +25,30 @@ IMAGE_FILES = {
     TimingStatus.BEST_BUY: "victor_06_best_buy.png",
 }
 
+COLORS = {
+    "ink": "#0b0907",
+    "leather": "#17110d",
+    "wood": "#24170f",
+    "wood_light": "#352318",
+    "gold": "#b89753",
+    "gold_bright": "#d8bd78",
+    "brass_dark": "#6f572d",
+    "paper": "#d7c59d",
+    "muted": "#9e8b68",
+    "selection": "#4a3420",
+}
+
+ACCENT_COLORS = {
+    TimingStatus.WAITING: COLORS["gold"],
+    TimingStatus.RESEARCHING: COLORS["gold_bright"],
+    TimingStatus.BAD: "#8f3430",
+    TimingStatus.INSUFFICIENT: "#a8782e",
+    TimingStatus.NEUTRAL: "#b37a2c",
+    TimingStatus.GOOD: "#77834b",
+    TimingStatus.BUY: "#37694a",
+    TimingStatus.BEST_BUY: "#d1a83d",
+}
+
 
 class VictorApp(ttk.Frame):
     def __init__(self, master: tk.Tk, repository: VictorRepository,
@@ -39,67 +63,120 @@ class VictorApp(ttk.Frame):
         self.products: list[Product] = []
         self.image_cache: dict[TimingStatus, tk.PhotoImage] = {}
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
+        self._configure_theme()
         self._build_ui()
         self.refresh_products()
         self.after(100, self._process_events)
 
+    def _configure_theme(self) -> None:
+        self.master.configure(background=COLORS["ink"])
+        style = ttk.Style(self.master)
+        style.theme_use("clam")
+        style.configure(".", background=COLORS["ink"], foreground=COLORS["paper"],
+                        fieldbackground=COLORS["leather"], bordercolor=COLORS["brass_dark"],
+                        lightcolor=COLORS["gold"], darkcolor=COLORS["ink"],
+                        font=("Yu Gothic UI", 10))
+        style.configure("TFrame", background=COLORS["ink"])
+        style.configure("Wood.TFrame", background=COLORS["wood"])
+        style.configure("TLabel", background=COLORS["ink"], foreground=COLORS["paper"])
+        style.configure("Title.TLabel", background=COLORS["ink"], foreground=COLORS["gold_bright"],
+                        font=("Yu Mincho", 22, "bold"))
+        style.configure("Heading.TLabel", background=COLORS["wood"], foreground=COLORS["gold"],
+                        font=("Yu Mincho", 12, "bold"))
+        style.configure("Image.TLabel", background=COLORS["wood"], foreground=COLORS["gold"])
+        style.configure("PanelMuted.TLabel", background=COLORS["wood"], foreground=COLORS["muted"])
+        style.configure("Caption.TLabel", background=COLORS["wood"], foreground=COLORS["muted"])
+        style.configure("Value.TLabel", background=COLORS["wood"], foreground=COLORS["paper"],
+                        font=("Yu Gothic UI", 11, "bold"))
+        style.configure("Quote.TLabel", background=COLORS["wood"], foreground=COLORS["gold_bright"],
+                        font=("Yu Mincho", 12))
+        style.configure("Plate.TButton", background=COLORS["brass_dark"], foreground="#f1e4c1",
+                        borderwidth=1, relief="raised", padding=(12, 7), font=("Yu Gothic UI", 10, "bold"))
+        style.map("Plate.TButton",
+                  background=[("pressed", "#4e3b20"), ("active", "#8b6d37"), ("disabled", "#302a22")],
+                  foreground=[("disabled", "#766c5c")])
+        style.configure("TEntry", fieldbackground="#100d0a", foreground=COLORS["paper"],
+                        insertcolor=COLORS["gold_bright"], bordercolor=COLORS["brass_dark"], padding=6)
+        style.configure("TCheckbutton", background=COLORS["ink"], foreground=COLORS["paper"])
+        style.map("TCheckbutton", background=[("active", COLORS["ink"])])
+        style.configure("Ledger.Treeview", background="#17120d", fieldbackground="#17120d",
+                        foreground=COLORS["paper"], rowheight=30, bordercolor=COLORS["brass_dark"])
+        style.configure("Ledger.Treeview.Heading", background=COLORS["wood_light"],
+                        foreground=COLORS["gold_bright"], font=("Yu Mincho", 10, "bold"), relief="flat")
+        style.map("Ledger.Treeview", background=[("selected", COLORS["selection"])],
+                  foreground=[("selected", "#f4e6c2")])
+        for status, color in ACCENT_COLORS.items():
+            style.configure(f"{status.value}.Status.TLabel", background=COLORS["wood"],
+                            foreground=color, font=("Yu Mincho", 15, "bold"))
+            style.configure(f"{status.value}.Quote.TLabel", background=COLORS["wood"],
+                            foreground=color, font=("Yu Mincho", 12))
+
     def _build_ui(self) -> None:
         self.master.title("時期判定官 ヴィクトル")
-        self.master.geometry("1000x680")
-        self.master.minsize(820, 580)
+        self.master.geometry("1100x720")
+        self.master.minsize(900, 620)
         self.pack(fill=tk.BOTH, expand=True)
         self.columnconfigure(1, weight=1)
         self.rowconfigure(1, weight=1)
 
-        title = ttk.Label(self, text="時期判定官 ヴィクトル", font=("Yu Gothic UI", 20, "bold"))
+        title = ttk.Label(self, text="時期判定官 ヴィクトル", style="Title.TLabel")
         title.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
-        left = ttk.Frame(self)
-        left.grid(row=1, column=0, sticky="nsew", padx=(0, 12))
+        left_border = tk.Frame(self, background=COLORS["wood"], highlightbackground=COLORS["gold"],
+                               highlightthickness=1, bd=0)
+        left_border.grid(row=1, column=0, sticky="nsew", padx=(0, 12))
+        left = ttk.Frame(left_border, style="Wood.TFrame", padding=10)
+        left.pack(fill=tk.BOTH, expand=True)
         left.rowconfigure(1, weight=1)
-        ttk.Label(left, text="監視商品", font=("Yu Gothic UI", 12, "bold")).grid(row=0, column=0, sticky="w")
-        self.product_list = tk.Listbox(left, width=30, exportselection=False)
+        ttk.Label(left, text="監視商品目録", style="Heading.TLabel").grid(row=0, column=0, sticky="w")
+        self.product_list = tk.Listbox(left, width=30, exportselection=False, bd=0,
+                                      background="#14100c", foreground=COLORS["paper"],
+                                      selectbackground=COLORS["selection"], selectforeground="#f4e6c2",
+                                      highlightbackground=COLORS["brass_dark"], highlightthickness=1,
+                                      font=("Yu Mincho", 10), activestyle="none")
         self.product_list.grid(row=1, column=0, sticky="nsew", pady=6)
         self.product_list.bind("<<ListboxSelect>>", self._on_product_selected)
 
-        buttons = ttk.Frame(left)
+        buttons = ttk.Frame(left, style="Wood.TFrame")
         buttons.grid(row=2, column=0, sticky="ew")
-        ttk.Button(buttons, text="商品登録", command=self.add_product).pack(side=tk.LEFT)
-        ttk.Button(buttons, text="編集", command=self.edit_product).pack(side=tk.LEFT, padx=4)
-        ttk.Button(buttons, text="削除", command=self.delete_product).pack(side=tk.LEFT)
+        ttk.Button(buttons, text="商品登録", style="Plate.TButton", command=self.add_product).pack(side=tk.LEFT)
+        ttk.Button(buttons, text="編集", style="Plate.TButton", command=self.edit_product).pack(side=tk.LEFT, padx=4)
+        ttk.Button(buttons, text="削除", style="Plate.TButton", command=self.delete_product).pack(side=tk.LEFT)
 
-        right = ttk.Frame(self)
+        right = tk.Frame(self, background=COLORS["wood"], highlightbackground=COLORS["gold"],
+                         highlightthickness=1, bd=0, padx=16, pady=14)
+        self.result_panel = right
         right.grid(row=1, column=1, sticky="nsew")
         right.columnconfigure(0, weight=1)
         right.rowconfigure(1, weight=1)
-        self.detail_title = ttk.Label(right, text="商品を選択してください", font=("Yu Gothic UI", 15, "bold"))
+        self.detail_title = ttk.Label(right, text="商品を選択してください", style="Heading.TLabel")
         self.detail_title.grid(row=0, column=0, sticky="w", pady=(0, 8))
 
-        content = ttk.Frame(right)
+        content = ttk.Frame(right, style="Wood.TFrame")
         content.grid(row=1, column=0, sticky="nsew")
         content.columnconfigure(1, weight=1)
-        self.image_label = ttk.Label(content, anchor="center")
+        self.image_label = ttk.Label(content, anchor="center", style="Image.TLabel")
         self.image_label.grid(row=0, column=0, rowspan=7, sticky="n", padx=(0, 18))
         self.values: dict[str, ttk.Label] = {}
         for row, (key, caption) in enumerate((
             ("status", "判定"), ("current", "現在価格"), ("average", "30日平均"),
             ("difference", "平均との差"), ("lowest", "30日最安値"), ("fetched", "取得日時"),
         )):
-            ttk.Label(content, text=caption).grid(row=row, column=1, sticky="w", pady=4)
-            label = ttk.Label(content, text="-", font=("Yu Gothic UI", 11, "bold"))
+            ttk.Label(content, text=caption, style="Caption.TLabel").grid(row=row, column=1, sticky="w", pady=4)
+            label = ttk.Label(content, text="-", style="Value.TLabel")
             label.grid(row=row, column=2, sticky="w", padx=(15, 0), pady=4)
             self.values[key] = label
 
         self.message_label = ttk.Label(right, text="商品を選び、価格を調査してください。",
-                                       wraplength=600, font=("Yu Gothic UI", 12))
+                                       wraplength=600, style="Quote.TLabel")
         self.message_label.grid(row=2, column=0, sticky="ew", pady=10)
-        self.progress_label = ttk.Label(right, text="")
+        self.progress_label = ttk.Label(right, text="", style="PanelMuted.TLabel")
         self.progress_label.grid(row=3, column=0, sticky="w")
-        actions = ttk.Frame(right)
+        actions = ttk.Frame(right, style="Wood.TFrame")
         actions.grid(row=4, column=0, sticky="ew", pady=(8, 0))
-        self.investigate_button = ttk.Button(actions, text="価格を調査する", command=self.investigate)
+        self.investigate_button = ttk.Button(actions, text="価格を調査する", style="Plate.TButton", command=self.investigate)
         self.investigate_button.pack(side=tk.LEFT)
-        ttk.Button(actions, text="履歴表示", command=self.show_history).pack(side=tk.LEFT, padx=6)
+        ttk.Button(actions, text="価格履歴", style="Plate.TButton", command=self.show_history).pack(side=tk.LEFT, padx=6)
         self._show_status(TimingStatus.WAITING)
 
     def refresh_products(self, selected_id: int | None = None) -> None:
@@ -210,8 +287,10 @@ class VictorApp(ttk.Frame):
         self.progress_label.configure(text="調査が完了しました")
 
     def _show_status(self, status: TimingStatus, result: EvaluationResult | None = None) -> None:
-        self.values["status"].configure(text=LABELS[status])
-        self.message_label.configure(text=MESSAGES[status])
+        accent = ACCENT_COLORS[status]
+        self.result_panel.configure(highlightbackground=accent)
+        self.values["status"].configure(text=LABELS[status], style=f"{status.value}.Status.TLabel")
+        self.message_label.configure(text=MESSAGES[status], style=f"{status.value}.Quote.TLabel")
         if result:
             self.values["current"].configure(text=f"{result.current_price:,}円")
             self.values["average"].configure(text=self._yen(result.average_price))
@@ -246,7 +325,9 @@ class VictorApp(ttk.Frame):
         window = tk.Toplevel(self.master)
         window.title(f"価格履歴 - {product.name}")
         window.geometry("520x420")
-        tree = ttk.Treeview(window, columns=("fetched", "price"), show="headings")
+        window.configure(background=COLORS["ink"])
+        ttk.Label(window, text=f"相場帳　{product.name}", style="Title.TLabel").pack(anchor="w", padx=12, pady=(12, 0))
+        tree = ttk.Treeview(window, columns=("fetched", "price"), show="headings", style="Ledger.Treeview")
         tree.heading("fetched", text="日時")
         tree.heading("price", text="価格")
         tree.column("fetched", width=260)
@@ -268,6 +349,7 @@ class ProductDialog(tk.Toplevel):
         self.product = product
         self.on_save = on_save
         self.title(title)
+        self.configure(background=COLORS["ink"])
         self.resizable(False, False)
         self.transient(parent)
         self.grab_set()
@@ -288,8 +370,8 @@ class ProductDialog(tk.Toplevel):
         ttk.Checkbutton(frame, text="有効", variable=self.variables["enabled"]).grid(row=4, column=1, sticky="w", pady=5)
         actions = ttk.Frame(frame)
         actions.grid(row=5, column=0, columnspan=2, sticky="e", pady=(12, 0))
-        ttk.Button(actions, text="キャンセル", command=self.destroy).pack(side=tk.LEFT)
-        ttk.Button(actions, text="保存", command=self._submit).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Button(actions, text="キャンセル", style="Plate.TButton", command=self.destroy).pack(side=tk.LEFT)
+        ttk.Button(actions, text="保存", style="Plate.TButton", command=self._submit).pack(side=tk.LEFT, padx=(6, 0))
         self.bind("<Escape>", lambda _event: self.destroy())
         self.bind("<Return>", lambda _event: self._submit())
 
@@ -310,4 +392,3 @@ class ProductDialog(tk.Toplevel):
         product.enabled = bool(values["enabled"])
         self.on_save(product)  # type: ignore[operator]
         self.destroy()
-
