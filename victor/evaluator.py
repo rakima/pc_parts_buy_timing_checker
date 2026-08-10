@@ -5,6 +5,7 @@ from victor.models import EvaluationResult, PriceRecord, TimingStatus
 
 
 LABELS = {
+    TimingStatus.WAITING: "指示待ち",
     TimingStatus.RESEARCHING: "調査中",
     TimingStatus.BAD: "時期が悪い",
     TimingStatus.INSUFFICIENT: "データ不足",
@@ -15,6 +16,7 @@ LABELS = {
 }
 
 MESSAGES = {
+    TimingStatus.WAITING: "ご指示をお待ちしております。何を調査しましょうか？",
     TimingStatus.RESEARCHING: "うーむ……データを確認しておる……",
     TimingStatus.BAD: "今は時期が悪い。待つのだ。",
     TimingStatus.INSUFFICIENT: "まだ判断材料が足りません。",
@@ -61,4 +63,3 @@ class BuyTimingEvaluator:
                 difference: float | None = None, lowest: int | None = None) -> EvaluationResult:
         return EvaluationResult(status, LABELS[status], MESSAGES[status], current,
                                 average, difference, lowest)
-
