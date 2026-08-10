@@ -15,6 +15,7 @@ from victor.services import InvestigationResult, PriceInvestigationService
 
 
 IMAGE_FILES = {
+    TimingStatus.WAITING: "victor_00_waiting.png",
     TimingStatus.RESEARCHING: "victor_01_researching.png",
     TimingStatus.BAD: "victor_02_bad.png",
     TimingStatus.INSUFFICIENT: "victor_03_neutral.png",
@@ -99,7 +100,7 @@ class VictorApp(ttk.Frame):
         self.investigate_button = ttk.Button(actions, text="価格を調査する", command=self.investigate)
         self.investigate_button.pack(side=tk.LEFT)
         ttk.Button(actions, text="履歴表示", command=self.show_history).pack(side=tk.LEFT, padx=6)
-        self._show_status(TimingStatus.NEUTRAL)
+        self._show_status(TimingStatus.WAITING)
 
     def refresh_products(self, selected_id: int | None = None) -> None:
         self.products = self.repository.list_products()
