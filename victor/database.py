@@ -58,6 +58,13 @@ class VictorRepository:
             ).fetchall()
         return [self._product_from_row(row) for row in rows]
 
+    def get_product_by_url(self, url: str) -> Product | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM products WHERE url = ? LIMIT 1", (url,)
+            ).fetchone()
+        return self._product_from_row(row) if row else None
+
     def save_product(self, product: Product) -> Product:
         now = product.created_at or datetime.now()
         with self._connect() as connection:

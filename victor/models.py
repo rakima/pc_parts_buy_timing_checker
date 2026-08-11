@@ -28,6 +28,19 @@ class Product:
 
 
 @dataclass(frozen=True, slots=True)
+class ProductCandidate:
+    name: str
+    price: int
+    url: str
+    shop: str
+    category: str
+    manufacturer: str | None = None
+    model_name: str | None = None
+    stock_status: str | None = None
+    fetched_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class PriceRecord:
     product_id: int
     price: int
