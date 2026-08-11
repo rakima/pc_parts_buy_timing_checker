@@ -4,6 +4,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox
 
+from victor.catalogs import CachedCatalogFetcher, CatalogFetcherRegistry, TsukumoCatalogFetcher
 from victor.config import SettingsManager
 from victor.database import VictorRepository
 from victor.evaluator import BuyTimingEvaluator
@@ -26,12 +27,20 @@ def main() -> None:
             TsukumoPriceFetcher.SITE_NAME,
             TsukumoPriceFetcher(settings.user_agent, settings.request_timeout_seconds),
         )
+        catalogs = CatalogFetcherRegistry()
+        catalogs.register(
+            TsukumoCatalogFetcher.SITE_NAME,
+            CachedCatalogFetcher(TsukumoCatalogFetcher(
+                settings.user_agent, settings.request_timeout_seconds, logger
+            )),
+        )
         evaluator = BuyTimingEvaluator(settings.evaluation)
         service = PriceInvestigationService(
             repository, registry, evaluator, settings.evaluation.comparison_days, logger
         )
         root = tk.Tk()
-        VictorApp(root, repository, service, root_directory / "assets" / "images", logger)
+        VictorApp(root, repository, service, catalogs,
+                  root_directory / "assets" / "images", logger)
         root.mainloop()
     except Exception as exc:
         logger.exception("例外")

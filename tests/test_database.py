@@ -23,6 +23,8 @@ class VictorRepositoryTest(unittest.TestCase):
         product.name = "更新GPU"
         self.repository.save_product(product)
         self.assertEqual("更新GPU", self.repository.list_products()[0].name)
+        self.assertEqual(product.id, self.repository.get_product_by_url(product.url).id)
+        self.assertIsNone(self.repository.get_product_by_url("https://example.com/missing"))
 
         self.repository.add_price(PriceRecord(product.id or 0, 89_800, datetime(2026, 8, 10)))
         self.assertEqual(89_800, self.repository.get_price_history(product.id or 0)[0].price)
