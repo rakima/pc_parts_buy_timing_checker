@@ -248,6 +248,7 @@ class VictorApp(ttk.Frame):
         self.logger.info("監視対象追加 product=%s shop=%s category=%s url=%s",
                          saved.name, saved.site, saved.category, saved.url)
         self.refresh_products(saved.id)
+        self.progress_label.configure(text=f"「{saved.name}」を監視対象に加えました。")
         return True
 
     def _save_product(self, product: Product) -> None:
@@ -535,9 +536,6 @@ class ProductSearchDialog(tk.Toplevel):
             return
         candidate = self.visible_candidates[int(selection[0])]
         if self.on_add(candidate):
-            messagebox.showinfo(
-                "監視対象", f"「{candidate.name}」を監視対象へ追加しました。", parent=self
-            )
             self.destroy()
 
 
