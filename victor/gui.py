@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import queue
 import threading
+import time
 import tkinter as tk
 from collections.abc import Callable
 from pathlib import Path
@@ -52,6 +53,19 @@ ACCENT_COLORS = {
     TimingStatus.BUY: "#37694a",
     TimingStatus.BEST_BUY: "#d1a83d",
 }
+
+MINIMUM_RESEARCH_SECONDS = 3.0
+
+
+def wait_for_minimum_duration(
+    started_at: float,
+    minimum_seconds: float = MINIMUM_RESEARCH_SECONDS,
+    clock: Callable[[], float] = time.monotonic,
+    sleeper: Callable[[float], None] = time.sleep,
+) -> None:
+    remaining = minimum_seconds - (clock() - started_at)
+    if remaining > 0:
+        sleeper(remaining)
 
 
 class VictorApp(ttk.Frame):
@@ -283,13 +297,17 @@ class VictorApp(ttk.Frame):
         threading.Thread(target=self._investigate_worker, args=(product,), daemon=True).start()
 
     def _investigate_worker(self, product: Product) -> None:
+        started_at = time.monotonic()
         try:
             result = self.service.investigate(
                 product, lambda message: self.events.put(("progress", message))
             )
-            self.events.put(("success", result))
+            outcome: tuple[str, object] = ("success", result)
         except Exception as exc:
-            self.events.put(("error", str(exc)))
+            outcome = ("error", str(exc))
+        self.events.put(("progress", "ヴィクトルが判定を吟味中……"))
+        wait_for_minimum_duration(started_at)
+        self.events.put(outcome)
 
     def _process_events(self) -> None:
         try:
