@@ -219,16 +219,18 @@ class VictorApp(ttk.Frame):
         if product is None:
             return
         self.detail_title.configure(text=product.name)
+        for key in ("average", "difference", "lowest"):
+            self.values[key].configure(text="-")
         history = self.repository.get_price_history(product.id or 0, 1)
         if history:
             latest = history[0]
+            self.values["status"].configure(text="-", style="Value.TLabel")
             self.values["current"].configure(text=f"{latest.price:,}円")
             self.values["fetched"].configure(text=latest.fetched_at.strftime("%Y-%m-%d %H:%M"))
         else:
             self.values["current"].configure(text="未取得")
             self.values["fetched"].configure(text="-")
-        for key in ("status", "average", "difference", "lowest"):
-            self.values[key].configure(text="-")
+            self._show_status(TimingStatus.WAITING)
         self.progress_label.configure(text=f"{product.category} / {product.site}")
 
     def add_product(self) -> None:
