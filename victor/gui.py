@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import logging
+import csv
 import queue
 import threading
 import time
 import tkinter as tk
 from collections.abc import Callable
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageTk
 
@@ -179,7 +180,7 @@ class VictorApp(ttk.Frame):
             content, width=STATUS_IMAGE_SIZE[0], height=STATUS_IMAGE_SIZE[1],
             background=COLORS["wood"], bd=0,
         )
-        self.image_frame.grid(row=0, column=0, rowspan=10, sticky="nw", padx=(0, 24))
+        self.image_frame.grid(row=0, column=0, rowspan=11, sticky="nw", padx=(0, 24))
         self.image_frame.grid_propagate(False)
         self.image_label = ttk.Label(self.image_frame, anchor="center", style="Image.TLabel")
         self.image_label.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
@@ -187,6 +188,7 @@ class VictorApp(ttk.Frame):
         for row, (key, caption) in enumerate((
             ("status", "判定"), ("current", "現在価格"), ("average", "30日平均"),
             ("seven_average", "7日平均"), ("trend", "短期トレンド"),
+            ("confidence", "判定信頼度"),
             ("difference", "平均との差"), ("lowest", "30日最安値"),
             ("stock", "在庫・出荷"), ("specifications", "主な仕様"),
             ("fetched", "取得日時"),
@@ -234,7 +236,7 @@ class VictorApp(ttk.Frame):
         self.values["specifications"].configure(
             text=format_specifications(product.specifications) or "-"
         )
-        for key in ("average", "seven_average", "trend", "difference", "lowest"):
+        for key in ("average", "seven_average", "trend", "confidence", "difference", "lowest"):
             self.values[key].configure(text="-")
         history = self.repository.get_price_history(product.id or 0, 1)
         if history:
@@ -348,6 +350,10 @@ class VictorApp(ttk.Frame):
     def _show_result(self, result: InvestigationResult) -> None:
         evaluation = result.evaluation
         self._show_status(evaluation.status, evaluation)
+        self.values["stock"].configure(text=result.product.stock_status or "-")
+        self.values["specifications"].configure(
+            text=format_specifications(result.product.specifications) or "-"
+        )
         self.values["fetched"].configure(text=result.fetched_at.strftime("%Y-%m-%d %H:%M"))
         self.progress_label.configure(text="調査が完了しました")
 
@@ -355,7 +361,10 @@ class VictorApp(ttk.Frame):
         accent = ACCENT_COLORS[status]
         self.result_panel.configure(highlightbackground=accent)
         self.values["status"].configure(text=LABELS[status], style=f"{status.value}.Status.TLabel")
-        self.message_label.configure(text=MESSAGES[status], style=f"{status.value}.Quote.TLabel")
+        self.message_label.configure(
+            text=result.message if result else MESSAGES[status],
+            style=f"{status.value}.Quote.TLabel",
+        )
         if result:
             self.values["current"].configure(text=f"{result.current_price:,}円")
             self.values["average"].configure(text=self._yen(result.average_price))
@@ -364,6 +373,10 @@ class VictorApp(ttk.Frame):
             if result.trend_percent is not None:
                 trend = f"{result.trend_label} ({result.trend_percent:+.1f}%)"
             self.values["trend"].configure(text=trend)
+            confidence = result.confidence_label or "-"
+            if result.excluded_outlier_count:
+                confidence += f"（外れ値{result.excluded_outlier_count}日除外）"
+            self.values["confidence"].configure(text=confidence)
             difference = "-" if result.difference_percent is None else f"{result.difference_percent:+.1f}%"
             self.values["difference"].configure(text=difference)
             self.values["lowest"].configure(text=self._yen(result.lowest_price))
@@ -398,27 +411,71 @@ class VictorApp(ttk.Frame):
         window.geometry("760x640")
         window.configure(background=COLORS["ink"])
         ttk.Label(window, text=f"相場帳　{product.name}", style="Title.TLabel").pack(anchor="w", padx=12, pady=(12, 0))
-        summaries = list(reversed(self.repository.get_daily_price_summaries(product.id, 30)))
+        controls = ttk.Frame(window)
+        controls.pack(fill=tk.X, padx=12, pady=(8, 0))
+        period = tk.StringVar(value="30日")
+        mode = tk.StringVar(value="日次")
+        ttk.Label(controls, text="期間").pack(side=tk.LEFT)
+        period_field = ttk.Combobox(controls, textvariable=period,
+                                    values=("7日", "30日", "全期間"), state="readonly", width=8)
+        period_field.pack(side=tk.LEFT, padx=(6, 14))
+        ttk.Label(controls, text="表示").pack(side=tk.LEFT)
+        mode_field = ttk.Combobox(controls, textvariable=mode,
+                                  values=("日次", "取得履歴", "在庫履歴"), state="readonly", width=10)
+        mode_field.pack(side=tk.LEFT, padx=6)
         chart = tk.Canvas(window, height=260, background="#100d0a", highlightbackground=COLORS["brass_dark"],
                           highlightthickness=1, bd=0)
         chart.pack(fill=tk.X, padx=12, pady=(10, 4))
-        chart.bind("<Configure>", lambda event: self._draw_price_chart(chart, summaries))
-
-        columns = ("day", "average", "minimum", "count")
-        tree = ttk.Treeview(window, columns=columns, show="headings", style="Ledger.Treeview")
-        for key, title in (("day", "日付"), ("average", "日次平均"),
-                           ("minimum", "日次最安"), ("count", "取得回数")):
-            tree.heading(key, text=title)
-        tree.column("day", width=180)
-        tree.column("average", width=160, anchor=tk.E)
-        tree.column("minimum", width=160, anchor=tk.E)
-        tree.column("count", width=120, anchor=tk.E)
+        tree = ttk.Treeview(window, show="headings", style="Ledger.Treeview")
         tree.pack(fill=tk.BOTH, expand=True, padx=12, pady=(4, 12))
-        for summary in reversed(summaries):
-            tree.insert("", tk.END, values=(summary.day.isoformat(),
-                                            f"{summary.average_price:,.0f}円",
-                                            f"{summary.minimum_price:,}円",
-                                            f"{summary.sample_count}回"))
+        current_rows: list[tuple[object, ...]] = []
+
+        def refresh(_event: object = None) -> None:
+            nonlocal current_rows
+            limit = {"7日": 7, "30日": 30, "全期間": 10_000}[period.get()]
+            summaries = list(reversed(self.repository.get_daily_price_summaries(product.id, limit)))
+            self._draw_price_chart(chart, summaries)
+            tree.delete(*tree.get_children())
+            if mode.get() == "日次":
+                columns = ("day", "average", "minimum", "count")
+                headings = ("日付", "日次平均", "日次最安", "取得回数")
+                current_rows = [(item.day.isoformat(), round(item.average_price),
+                                 item.minimum_price, item.sample_count) for item in reversed(summaries)]
+            elif mode.get() == "取得履歴":
+                columns = ("fetched", "price")
+                headings = ("取得日時", "価格")
+                records = self.repository.get_price_history(product.id, limit * 20)
+                current_rows = [(item.fetched_at.strftime("%Y-%m-%d %H:%M:%S"), item.price)
+                                for item in records]
+            else:
+                columns = ("fetched", "stock")
+                headings = ("取得日時", "在庫・出荷")
+                records = self.repository.get_inventory_history(product.id, limit * 20)
+                current_rows = [(item.fetched_at.strftime("%Y-%m-%d %H:%M:%S"), item.stock_status)
+                                for item in records]
+            tree.configure(columns=columns)
+            for key, title in zip(columns, headings):
+                tree.heading(key, text=title)
+                tree.column(key, width=180, anchor=tk.E if key != columns[0] else tk.W)
+            for row in current_rows:
+                tree.insert("", tk.END, values=row)
+
+        def export_csv() -> None:
+            path = filedialog.asksaveasfilename(parent=window, defaultextension=".csv",
+                                                filetypes=(("CSV", "*.csv"),))
+            if not path:
+                return
+            with open(path, "w", newline="", encoding="utf-8-sig") as stream:
+                writer = csv.writer(stream)
+                writer.writerow([tree.heading(key, "text") for key in tree["columns"]])
+                writer.writerows(current_rows)
+
+        ttk.Button(controls, text="CSV保存", style="Plate.TButton",
+                   command=export_csv).pack(side=tk.RIGHT)
+        period_field.bind("<<ComboboxSelected>>", refresh)
+        mode_field.bind("<<ComboboxSelected>>", refresh)
+        chart.bind("<Configure>", refresh)
+        refresh()
 
     @staticmethod
     def _draw_price_chart(canvas: tk.Canvas, summaries: list[DailyPriceSummary]) -> None:
