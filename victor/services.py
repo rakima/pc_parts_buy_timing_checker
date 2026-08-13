@@ -118,6 +118,10 @@ class PriceInvestigationService:
             else:
                 match = provider.find_product(product)
                 if not match:
+                    self.repository.save_external_provider_status(
+                        product.id, provider.provider_name, "NO_MATCH",
+                        "価格.com商品を特定できませんでした", 0, now,
+                    )
                     return []
                 self.repository.save_external_mapping(ExternalProductMapping(
                     product.id, provider.provider_name, match.external_id, match.url,
@@ -130,11 +134,22 @@ class PriceInvestigationService:
             if newest_fetch and newest_fetch >= now - timedelta(hours=self.external_cache_hours):
                 self.logger.info("キャッシュ利用 provider=%s external_id=%s count=%s",
                                  provider.provider_name, match.external_id, len(cached))
+                self.repository.save_external_provider_status(
+                    product.id, provider.provider_name, "CACHED", "キャッシュ利用",
+                    len(cached), now,
+                )
                 return cached
             fetched = provider.fetch_history(match)
             self.repository.save_external_prices(fetched)
+            self.repository.save_external_provider_status(
+                product.id, provider.provider_name, "SUCCESS", "履歴取得成功",
+                len(fetched), now,
+            )
             return fetched
-        except Exception:
+        except Exception as exc:
             self.logger.exception("価格.com履歴取得失敗 product=%s", product.name)
+            self.repository.save_external_provider_status(
+                product.id, provider.provider_name, "ERROR", str(exc), 0, now,
+            )
             return []
 
