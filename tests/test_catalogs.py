@@ -20,6 +20,7 @@ CATALOG_FIXTURE = """
   <div class="search_stock_title"><span>在庫わずか</span><span>24時間以内</span>に出荷</div>
   <meta itemprop="priceCurrency" content="JPY">
   <meta itemprop="price" content="&yen;149,800(税込)">
+  <meta itemprop="description" content="GeForce RTX 5070 Ti搭載 16GB GDDR7">
 </div>
 <div class="search-box__product">
   <a class="product-link" href="https://shop.tsukumo.co.jp/goods/2222222222222/">
@@ -42,6 +43,9 @@ class TsukumoCatalogFetcherTest(unittest.TestCase):
         self.assertEqual("GPU", candidate.category)
         self.assertEqual("MSI エムエスアイ", candidate.manufacturer)
         self.assertEqual("在庫わずか", candidate.stock_status)
+        self.assertEqual("GeForce RTX 5070 Ti搭載 16GB GDDR7", candidate.description)
+        self.assertEqual((('GPU', 'RTX 5070 TI'), ('VRAM', '16GB')),
+                         candidate.specifications)
         self.assertIsNotNone(candidate.fetched_at)
 
     def test_builds_first_and_later_page_urls(self) -> None:

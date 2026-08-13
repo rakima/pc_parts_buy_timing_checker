@@ -11,6 +11,7 @@ from html.parser import HTMLParser
 from typing import Callable
 
 from victor.models import ProductCandidate
+from victor.specifications import extract_specifications
 
 
 class CatalogFetchError(RuntimeError):
@@ -155,6 +156,8 @@ class _TsukumoCatalogParser(HTMLParser):
             self._start_capture("stock_status")
         elif tag == "meta" and attributes.get("itemprop") == "price":
             self.data["price"] = attributes.get("content") or ""
+        elif tag == "meta" and attributes.get("itemprop") == "description":
+            self.data["description"] = attributes.get("content") or ""
 
     def handle_endtag(self, tag: str) -> None:
         if self.data is None:
@@ -181,6 +184,7 @@ class _TsukumoCatalogParser(HTMLParser):
             name = self._clean(self.data.get("name", ""))
             url = self.data.get("url", "").strip()
             price = self._parse_price(self.data.get("price", ""))
+            description = self._clean(self.data.get("description", ""))
             if not name or not re.fullmatch(r"https://shop\.tsukumo\.co\.jp/goods/\d+/", url):
                 raise ValueError("商品名またはURLが不正です")
             self.candidates.append(ProductCandidate(
@@ -191,6 +195,8 @@ class _TsukumoCatalogParser(HTMLParser):
                 category=self.category,
                 manufacturer=self._clean(self.data.get("manufacturer", "")) or None,
                 stock_status=self._clean(self.data.get("stock_status", "")) or None,
+                description=description or None,
+                specifications=extract_specifications(self.category, name, description),
                 fetched_at=datetime.now(),
             ))
         except ValueError as exc:

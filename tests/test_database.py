@@ -19,13 +19,16 @@ class VictorRepositoryTest(unittest.TestCase):
 
     def test_product_crud_and_cascading_history_delete(self) -> None:
         product = self.repository.save_product(
-            Product("テストGPU", "GPU", "https://example.com/gpu", stock_status="在庫あり")
+            Product("テストGPU", "GPU", "https://example.com/gpu", stock_status="在庫あり",
+                    specifications=(("GPU", "RTX 5070"), ("VRAM", "12GB")))
         )
         self.assertIsNotNone(product.id)
         product.name = "更新GPU"
         self.repository.save_product(product)
         self.assertEqual("更新GPU", self.repository.list_products()[0].name)
         self.assertEqual("在庫あり", self.repository.list_products()[0].stock_status)
+        self.assertEqual((("GPU", "RTX 5070"), ("VRAM", "12GB")),
+                         self.repository.list_products()[0].specifications)
         self.assertEqual(product.id, self.repository.get_product_by_url(product.url).id)
         self.assertIsNone(self.repository.get_product_by_url("https://example.com/missing"))
 
@@ -57,6 +60,7 @@ class VictorRepositoryTest(unittest.TestCase):
             columns = {row[1] for row in cursor.fetchall()}
             cursor.close()
         self.assertIn("stock_status", columns)
+        self.assertIn("specifications_json", columns)
 
 
 if __name__ == "__main__":

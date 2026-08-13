@@ -16,6 +16,7 @@ from victor.database import VictorRepository
 from victor.evaluator import LABELS, MESSAGES
 from victor.models import DailyPriceSummary, EvaluationResult, Product, ProductCandidate, TimingStatus
 from victor.normalization import matches_product_name
+from victor.specifications import format_specifications
 from victor.services import InvestigationResult, PriceInvestigationService
 
 
@@ -178,7 +179,7 @@ class VictorApp(ttk.Frame):
             content, width=STATUS_IMAGE_SIZE[0], height=STATUS_IMAGE_SIZE[1],
             background=COLORS["wood"], bd=0,
         )
-        self.image_frame.grid(row=0, column=0, rowspan=9, sticky="nw", padx=(0, 24))
+        self.image_frame.grid(row=0, column=0, rowspan=10, sticky="nw", padx=(0, 24))
         self.image_frame.grid_propagate(False)
         self.image_label = ttk.Label(self.image_frame, anchor="center", style="Image.TLabel")
         self.image_label.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
@@ -187,7 +188,8 @@ class VictorApp(ttk.Frame):
             ("status", "判定"), ("current", "現在価格"), ("average", "30日平均"),
             ("seven_average", "7日平均"), ("trend", "短期トレンド"),
             ("difference", "平均との差"), ("lowest", "30日最安値"),
-            ("stock", "在庫・出荷"), ("fetched", "取得日時"),
+            ("stock", "在庫・出荷"), ("specifications", "主な仕様"),
+            ("fetched", "取得日時"),
         )):
             ttk.Label(content, text=caption, style="Caption.TLabel").grid(row=row, column=1, sticky="w", pady=4)
             label = ttk.Label(content, text="-", style="Value.TLabel")
@@ -229,6 +231,9 @@ class VictorApp(ttk.Frame):
             return
         self.detail_title.configure(text=product.name)
         self.values["stock"].configure(text=product.stock_status or "-")
+        self.values["specifications"].configure(
+            text=format_specifications(product.specifications) or "-"
+        )
         for key in ("average", "seven_average", "trend", "difference", "lowest"):
             self.values[key].configure(text="-")
         history = self.repository.get_price_history(product.id or 0, 1)
@@ -270,6 +275,7 @@ class VictorApp(ttk.Frame):
             url=candidate.url,
             site=candidate.shop,
             stock_status=candidate.stock_status,
+            specifications=candidate.specifications,
         )
         saved = self.repository.save_product(product)
         self.logger.info("監視対象追加 product=%s shop=%s category=%s url=%s",
@@ -524,18 +530,20 @@ class ProductSearchDialog(tk.Toplevel):
         ttk.Entry(search, textvariable=self.query).grid(row=0, column=1, sticky="ew")
         self.query.trace_add("write", lambda *_args: self._filter_candidates())
 
-        columns = ("name", "price", "manufacturer", "stock")
+        columns = ("name", "price", "specifications", "manufacturer", "stock")
         self.results = ttk.Treeview(
             frame, columns=columns, show="headings", style="Ledger.Treeview", selectmode="browse"
         )
         self.results.heading("name", text="商品名")
         self.results.heading("price", text="現在価格")
+        self.results.heading("specifications", text="主な仕様")
         self.results.heading("manufacturer", text="メーカー")
         self.results.heading("stock", text="在庫・出荷")
-        self.results.column("name", width=390)
+        self.results.column("name", width=310)
         self.results.column("price", width=100, anchor=tk.E)
-        self.results.column("manufacturer", width=150)
-        self.results.column("stock", width=150)
+        self.results.column("specifications", width=230)
+        self.results.column("manufacturer", width=130)
+        self.results.column("stock", width=130)
         self.results.grid(row=4, column=0, columnspan=3, sticky="nsew")
         scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=self.results.yview)
         scrollbar.grid(row=4, column=3, sticky="ns")
@@ -641,6 +649,7 @@ class ProductSearchDialog(tk.Toplevel):
             self.results.insert("", tk.END, iid=str(index), values=(
                 candidate.name,
                 f"{candidate.price:,}円",
+                format_specifications(candidate.specifications) or candidate.description or "-",
                 candidate.manufacturer or "-",
                 candidate.stock_status or "-",
             ))
@@ -687,9 +696,12 @@ class ProductDialog(tk.Toplevel):
             field.grid(row=row, column=1, pady=5)
         ttk.Label(frame, text="取得元").grid(row=2, column=0, sticky="w", pady=5)
         ttk.Label(frame, text=self.variables["site"].get()).grid(row=2, column=1, sticky="w", pady=5)
-        ttk.Checkbutton(frame, text="有効", variable=self.variables["enabled"]).grid(row=3, column=1, sticky="w", pady=5)
+        ttk.Label(frame, text="主な仕様").grid(row=3, column=0, sticky="w", pady=5)
+        ttk.Label(frame, text=format_specifications(product.specifications) if product else "-",
+                  wraplength=430).grid(row=3, column=1, sticky="w", pady=5)
+        ttk.Checkbutton(frame, text="有効", variable=self.variables["enabled"]).grid(row=4, column=1, sticky="w", pady=5)
         actions = ttk.Frame(frame)
-        actions.grid(row=4, column=0, columnspan=2, sticky="e", pady=(12, 0))
+        actions.grid(row=5, column=0, columnspan=2, sticky="e", pady=(12, 0))
         ttk.Button(actions, text="キャンセル", style="Plate.TButton", command=self.destroy).pack(side=tk.LEFT)
         ttk.Button(actions, text="保存", style="Plate.TButton", command=self._submit).pack(side=tk.LEFT, padx=(6, 0))
         self.bind("<Escape>", lambda _event: self.destroy())
