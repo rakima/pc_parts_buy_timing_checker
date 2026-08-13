@@ -23,6 +23,7 @@ class Product:
     url: str
     site: str = "汎用ECサイト"
     enabled: bool = True
+    stock_status: str | None = None
     id: int | None = None
     created_at: datetime | None = None
 

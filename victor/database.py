@@ -37,6 +37,7 @@ class VictorRepository:
                     url TEXT NOT NULL,
                     site TEXT NOT NULL,
                     enabled INTEGER NOT NULL DEFAULT 1,
+                    stock_status TEXT,
                     created_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS price_history (
@@ -50,6 +51,11 @@ class VictorRepository:
                     ON price_history(product_id, fetched_at);
                 """
             )
+            columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(products)")
+            }
+            if "stock_status" not in columns:
+                connection.execute("ALTER TABLE products ADD COLUMN stock_status TEXT")
 
     def list_products(self) -> list[Product]:
         with self._connect() as connection:
@@ -70,19 +76,19 @@ class VictorRepository:
         with self._connect() as connection:
             if product.id is None:
                 cursor = connection.execute(
-                    "INSERT INTO products(name, category, url, site, enabled, created_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO products(name, category, url, site, enabled, stock_status, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (product.name, product.category, product.url, product.site,
-                     int(product.enabled), now.isoformat()),
+                     int(product.enabled), product.stock_status, now.isoformat()),
                 )
                 product.id = int(cursor.lastrowid)
                 cursor.close()
                 product.created_at = now
             else:
                 connection.execute(
-                    "UPDATE products SET name=?, category=?, url=?, site=?, enabled=? WHERE id=?",
+                    "UPDATE products SET name=?, category=?, url=?, site=?, enabled=?, stock_status=? WHERE id=?",
                     (product.name, product.category, product.url, product.site,
-                     int(product.enabled), product.id),
+                     int(product.enabled), product.stock_status, product.id),
                 )
         return product
 
@@ -121,6 +127,7 @@ class VictorRepository:
     def _product_from_row(row: sqlite3.Row) -> Product:
         return Product(id=row["id"], name=row["name"], category=row["category"],
                        url=row["url"], site=row["site"], enabled=bool(row["enabled"]),
+                       stock_status=row["stock_status"],
                        created_at=datetime.fromisoformat(row["created_at"]))
 
     @staticmethod

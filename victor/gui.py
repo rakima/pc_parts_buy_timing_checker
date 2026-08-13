@@ -185,7 +185,8 @@ class VictorApp(ttk.Frame):
         self.values: dict[str, ttk.Label] = {}
         for row, (key, caption) in enumerate((
             ("status", "判定"), ("current", "現在価格"), ("average", "30日平均"),
-            ("difference", "平均との差"), ("lowest", "30日最安値"), ("fetched", "取得日時"),
+            ("difference", "平均との差"), ("lowest", "30日最安値"),
+            ("stock", "在庫・出荷"), ("fetched", "取得日時"),
         )):
             ttk.Label(content, text=caption, style="Caption.TLabel").grid(row=row, column=1, sticky="w", pady=4)
             label = ttk.Label(content, text="-", style="Value.TLabel")
@@ -226,6 +227,7 @@ class VictorApp(ttk.Frame):
         if product is None:
             return
         self.detail_title.configure(text=product.name)
+        self.values["stock"].configure(text=product.stock_status or "-")
         for key in ("average", "difference", "lowest"):
             self.values[key].configure(text="-")
         history = self.repository.get_price_history(product.id or 0, 1)
@@ -266,6 +268,7 @@ class VictorApp(ttk.Frame):
             category=candidate.category,
             url=candidate.url,
             site=candidate.shop,
+            stock_status=candidate.stock_status,
         )
         saved = self.repository.save_product(product)
         self.logger.info("監視対象追加 product=%s shop=%s category=%s url=%s",
