@@ -34,12 +34,20 @@ class BuyTimingEvaluator:
     def __init__(self, settings: EvaluationSettings) -> None:
         self.settings = settings
 
-    def evaluate(self, current_price: int, history: list[PriceRecord]) -> EvaluationResult:
+    def evaluate(self, current_price: int, history: list[PriceRecord],
+                 stock_status: str | None = None) -> EvaluationResult:
         daily = self.summarize_daily(history)
+        if stock_status in ("在庫なし", "販売終了"):
+            return EvaluationResult(
+                TimingStatus.INSUFFICIENT, LABELS[TimingStatus.INSUFFICIENT],
+                "現在は購入できません。在庫の回復を待つのだ。", current_price,
+                confidence_label="判定対象外",
+            )
         if not self._has_enough_history(daily):
             return self._result(TimingStatus.INSUFFICIENT, current_price)
 
-        average = sum(item.average_price for item in daily) / len(daily)
+        filtered = self._exclude_outliers(daily)
+        average = sum(item.average_price for item in filtered) / len(filtered)
         difference = ((current_price - average) / average) * 100
         status = self._status_for_difference(difference)
         latest_day = max(item.day for item in daily)
@@ -57,9 +65,11 @@ class BuyTimingEvaluator:
             status=status, label=LABELS[status], message=MESSAGES[status],
             current_price=current_price, average_price=average,
             difference_percent=difference,
-            lowest_price=min(item.minimum_price for item in daily),
+            lowest_price=min(item.minimum_price for item in filtered),
             seven_day_average=seven_average, thirty_day_average=average,
             trend_percent=trend_percent, trend_label=trend_label,
+            confidence_label=self._confidence(filtered),
+            excluded_outlier_count=len(daily) - len(filtered),
         )
 
     def _has_enough_history(self, history: list[DailyPriceSummary]) -> bool:
@@ -81,6 +91,28 @@ class BuyTimingEvaluator:
         if not summaries:
             return None
         return sum(item.average_price for item in summaries) / len(summaries)
+
+    @staticmethod
+    def _exclude_outliers(summaries: list[DailyPriceSummary]) -> list[DailyPriceSummary]:
+        if len(summaries) < 4:
+            return summaries
+        ordered = sorted(item.average_price for item in summaries)
+        median = (ordered[(len(ordered) - 1) // 2] + ordered[len(ordered) // 2]) / 2
+        deviations = sorted(abs(value - median) for value in ordered)
+        mad = (deviations[(len(deviations) - 1) // 2] + deviations[len(deviations) // 2]) / 2
+        if mad == 0:
+            return [item for item in summaries if item.average_price == median] or summaries
+        minimum, maximum = median - 3 * mad, median + 3 * mad
+        return [item for item in summaries if minimum <= item.average_price <= maximum] or summaries
+
+    @staticmethod
+    def _confidence(summaries: list[DailyPriceSummary]) -> str:
+        span = (max(item.day for item in summaries) - min(item.day for item in summaries)).days
+        if len(summaries) >= 14 and span >= 21:
+            return "高"
+        if len(summaries) >= 7 and span >= 14:
+            return "中"
+        return "低"
 
     def _status_for_difference(self, difference: float) -> TimingStatus:
         if difference >= self.settings.bad_percent:

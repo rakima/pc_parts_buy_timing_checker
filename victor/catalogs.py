@@ -81,6 +81,71 @@ class TsukumoCatalogFetcher(CatalogFetcher):
         return parser.candidates
 
 
+class DosparaCatalogFetcher(CatalogFetcher):
+    SITE_NAME = "ドスパラ"
+    CATEGORY_PATHS = {"GPU": "/BR31", "CPU": "/cpu", "SSD": "/BR115", "メモリ": "/BR12"}
+
+    def __init__(self, user_agent: str, timeout_seconds: int = 15,
+                 logger: logging.Logger | None = None) -> None:
+        self.user_agent = user_agent
+        self.timeout_seconds = timeout_seconds
+        self.logger = logger or logging.getLogger("victor.catalogs")
+
+    @property
+    def supported_categories(self) -> tuple[str, ...]:
+        return tuple(self.CATEGORY_PATHS)
+
+    def fetch(self, category: str, page: int = 1) -> list[ProductCandidate]:
+        if category not in self.CATEGORY_PATHS or page < 1:
+            raise CatalogFetchError(f"ドスパラの未対応カテゴリまたはページです: {category}")
+        start = (page - 1) * 24
+        url = f"https://www.dospara.co.jp{self.CATEGORY_PATHS[category]}?start={start}&sz=24"
+        try:
+            request = urllib.request.Request(url, headers={"User-Agent": self.user_agent})
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                content = response.read().decode(response.headers.get_content_charset() or "utf-8", errors="replace")
+        except Exception as exc:
+            raise CatalogFetchError(f"商品一覧を取得できませんでした: {exc}") from exc
+        return self.parse_catalog(content, category, self.logger)
+
+    @classmethod
+    def parse_catalog(cls, content: str, category: str,
+                      logger: logging.Logger | None = None) -> list[ProductCandidate]:
+        logger = logger or logging.getLogger("victor.catalogs")
+        starts = [match.start() for match in re.finditer(
+            r'<div class="product p-products-all-item-product"', content
+        )]
+        candidates: list[ProductCandidate] = []
+        for index, start in enumerate(starts):
+            block = content[start:starts[index + 1] if index + 1 < len(starts) else len(content)]
+            try:
+                link = re.search(r'href\s*=\s*["\']\s*(/SBR\d+/IC\d+\.html)', block)
+                name = re.search(r'class="productName"\s+value="([^"]+)"', block)
+                price = re.search(r'class="p-products-all-item-product__number">([\d,]+)', block)
+                if not link or not name or not price:
+                    raise ValueError("商品名・URL・価格が不足しています")
+                specs = tuple((cls._clean(key), cls._clean(value)) for key, value in re.findall(
+                    r'class="p-products-all-item-product__spec__item">(.*?)</th>\s*<td[^>]*class="p-products-all-item-product__spec__text">(.*?)</td>',
+                    block, re.S,
+                ))
+                shipment = re.search(r'class="p-products-all-item-product__shipment[^>]*>(.*?)</div>', block, re.S)
+                clean_name = cls._clean(name.group(1))
+                candidates.append(ProductCandidate(
+                    clean_name, int(price.group(1).replace(",", "")),
+                    f"https://www.dospara.co.jp{link.group(1)}", cls.SITE_NAME, category,
+                    manufacturer=clean_name.split()[0] if clean_name else None,
+                    stock_status=cls._clean(shipment.group(1)) if shipment else None,
+                    specifications=specs, fetched_at=datetime.now(),
+                ))
+            except ValueError as exc:
+                logger.warning("商品解析失敗 shop=ドスパラ error=%s", exc)
+        return candidates
+
+    @staticmethod
+    def _clean(value: str) -> str:
+        return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html.unescape(value))).strip()
+
+
 class CachedCatalogFetcher(CatalogFetcher):
     def __init__(self, fetcher: CatalogFetcher, ttl_seconds: int = 300,
                  clock: Callable[[], float] = time.monotonic) -> None:

@@ -61,6 +61,20 @@ class BuyTimingEvaluatorTest(unittest.TestCase):
         self.assertEqual(-10.0, result.trend_percent)
         self.assertEqual("下落", result.trend_label)
 
+    def test_excludes_extreme_daily_outlier(self) -> None:
+        now = datetime(2026, 8, 10)
+        history = [PriceRecord(1, price, now - timedelta(days=day)) for day, price in (
+            (1, 10_000), (8, 10_000), (15, 10_000), (22, 100_000)
+        )]
+        result = self.evaluator.evaluate(10_000, history)
+        self.assertEqual(10_000, result.thirty_day_average)
+        self.assertEqual(1, result.excluded_outlier_count)
+
+    def test_does_not_recommend_out_of_stock_product(self) -> None:
+        result = self.evaluator.evaluate(1_000, self.history, "在庫なし")
+        self.assertEqual(TimingStatus.INSUFFICIENT, result.status)
+        self.assertEqual("判定対象外", result.confidence_label)
+
 
 if __name__ == "__main__":
     unittest.main()
