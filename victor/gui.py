@@ -14,7 +14,7 @@ from PIL import Image, ImageTk
 from victor.catalogs import CatalogFetcherRegistry
 from victor.database import VictorRepository
 from victor.evaluator import LABELS, MESSAGES
-from victor.models import EvaluationResult, Product, ProductCandidate, TimingStatus
+from victor.models import DailyPriceSummary, EvaluationResult, Product, ProductCandidate, TimingStatus
 from victor.normalization import matches_product_name
 from victor.services import InvestigationResult, PriceInvestigationService
 
@@ -389,18 +389,77 @@ class VictorApp(ttk.Frame):
             return
         window = tk.Toplevel(self.master)
         window.title(f"価格履歴 - {product.name}")
-        window.geometry("520x420")
+        window.geometry("760x640")
         window.configure(background=COLORS["ink"])
         ttk.Label(window, text=f"相場帳　{product.name}", style="Title.TLabel").pack(anchor="w", padx=12, pady=(12, 0))
-        tree = ttk.Treeview(window, columns=("fetched", "price"), show="headings", style="Ledger.Treeview")
-        tree.heading("fetched", text="日時")
-        tree.heading("price", text="価格")
-        tree.column("fetched", width=260)
-        tree.column("price", width=180, anchor=tk.E)
-        tree.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
-        for record in self.repository.get_price_history(product.id):
-            tree.insert("", tk.END, values=(record.fetched_at.strftime("%Y-%m-%d %H:%M:%S"),
-                                            f"{record.price:,}円"))
+        summaries = list(reversed(self.repository.get_daily_price_summaries(product.id, 30)))
+        chart = tk.Canvas(window, height=260, background="#100d0a", highlightbackground=COLORS["brass_dark"],
+                          highlightthickness=1, bd=0)
+        chart.pack(fill=tk.X, padx=12, pady=(10, 4))
+        chart.bind("<Configure>", lambda event: self._draw_price_chart(chart, summaries))
+
+        columns = ("day", "average", "minimum", "count")
+        tree = ttk.Treeview(window, columns=columns, show="headings", style="Ledger.Treeview")
+        for key, title in (("day", "日付"), ("average", "日次平均"),
+                           ("minimum", "日次最安"), ("count", "取得回数")):
+            tree.heading(key, text=title)
+        tree.column("day", width=180)
+        tree.column("average", width=160, anchor=tk.E)
+        tree.column("minimum", width=160, anchor=tk.E)
+        tree.column("count", width=120, anchor=tk.E)
+        tree.pack(fill=tk.BOTH, expand=True, padx=12, pady=(4, 12))
+        for summary in reversed(summaries):
+            tree.insert("", tk.END, values=(summary.day.isoformat(),
+                                            f"{summary.average_price:,.0f}円",
+                                            f"{summary.minimum_price:,}円",
+                                            f"{summary.sample_count}回"))
+
+    @staticmethod
+    def _draw_price_chart(canvas: tk.Canvas, summaries: list[DailyPriceSummary]) -> None:
+        canvas.delete("all")
+        width = max(canvas.winfo_width(), 100)
+        height = max(canvas.winfo_height(), 100)
+        margin = 42
+        if not summaries:
+            canvas.create_text(width / 2, height / 2, text="価格履歴がありません",
+                               fill=COLORS["muted"], font=("Yu Mincho", 12))
+            return
+        averages = [summary.average_price for summary in summaries]
+        minimums = [summary.minimum_price for summary in summaries]
+        low, high = min(minimums), max(averages)
+        padding = max((high - low) * 0.1, high * 0.01, 1)
+        low -= padding
+        high += padding
+        plot_width = width - margin * 2
+        plot_height = height - margin * 2
+
+        def point(index: int, price: float) -> tuple[float, float]:
+            x = margin + (plot_width / max(len(summaries) - 1, 1)) * index
+            y = margin + plot_height * (high - price) / (high - low)
+            return x, y
+
+        canvas.create_line(margin, margin, margin, height - margin, fill=COLORS["brass_dark"])
+        canvas.create_line(margin, height - margin, width - margin, height - margin,
+                           fill=COLORS["brass_dark"])
+        canvas.create_text(margin - 6, margin, text=f"{high:,.0f}", anchor="e",
+                           fill=COLORS["muted"], font=("Yu Gothic UI", 8))
+        canvas.create_text(margin - 6, height - margin, text=f"{low:,.0f}", anchor="e",
+                           fill=COLORS["muted"], font=("Yu Gothic UI", 8))
+        average_points = [coordinate for index, price in enumerate(averages)
+                          for coordinate in point(index, price)]
+        if len(summaries) > 1:
+            canvas.create_line(*average_points, fill=COLORS["gold_bright"], width=2, smooth=True)
+        for index, (average, minimum) in enumerate(zip(averages, minimums)):
+            x, y = point(index, average)
+            canvas.create_oval(x - 3, y - 3, x + 3, y + 3,
+                               fill=COLORS["gold_bright"], outline="")
+            min_x, min_y = point(index, minimum)
+            canvas.create_oval(min_x - 2, min_y - 2, min_x + 2, min_y + 2,
+                               fill="#77834b", outline="")
+        canvas.create_text(margin, height - 16, text=summaries[0].day.isoformat(), anchor="w",
+                           fill=COLORS["muted"], font=("Yu Gothic UI", 8))
+        canvas.create_text(width - margin, height - 16, text=summaries[-1].day.isoformat(), anchor="e",
+                           fill=COLORS["muted"], font=("Yu Gothic UI", 8))
 
     @staticmethod
     def _yen(value: float | int | None) -> str:
