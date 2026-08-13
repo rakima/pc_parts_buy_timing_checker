@@ -38,11 +38,12 @@ class VictorRepositoryTest(unittest.TestCase):
     def test_adds_stock_column_to_existing_database(self) -> None:
         legacy_path = Path(self.temporary_directory.name) / "legacy.db"
         with sqlite3.connect(legacy_path) as connection:
-            connection.execute(
+            cursor = connection.execute(
                 "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT NOT NULL, "
                 "category TEXT NOT NULL, url TEXT NOT NULL, site TEXT NOT NULL, "
                 "enabled INTEGER NOT NULL, created_at TEXT NOT NULL)"
             )
+            cursor.close()
         VictorRepository(legacy_path)
         with sqlite3.connect(legacy_path) as connection:
             cursor = connection.execute("PRAGMA table_info(products)")
