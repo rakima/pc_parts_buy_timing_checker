@@ -50,6 +50,10 @@ class TsukumoCatalogFetcherTest(unittest.TestCase):
             "https://shop.tsukumo.co.jp/search/c20:2018/",
             fetcher._catalog_url("GPU", 1),
         )
+
+    def test_supports_requested_pc_part_categories(self) -> None:
+        fetcher = TsukumoCatalogFetcher("test")
+        self.assertEqual(("GPU", "CPU", "SSD", "メモリ"), fetcher.supported_categories)
         self.assertEqual(
             "https://shop.tsukumo.co.jp/search/c20:2018/p2/",
             fetcher._catalog_url("GPU", 2),

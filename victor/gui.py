@@ -14,7 +14,7 @@ from PIL import Image, ImageTk
 from victor.catalogs import CatalogFetcherRegistry
 from victor.database import VictorRepository
 from victor.evaluator import LABELS, MESSAGES
-from victor.models import EvaluationResult, Product, ProductCandidate, TimingStatus
+from victor.models import DailyPriceSummary, EvaluationResult, Product, ProductCandidate, TimingStatus
 from victor.normalization import matches_product_name
 from victor.services import InvestigationResult, PriceInvestigationService
 
@@ -178,14 +178,16 @@ class VictorApp(ttk.Frame):
             content, width=STATUS_IMAGE_SIZE[0], height=STATUS_IMAGE_SIZE[1],
             background=COLORS["wood"], bd=0,
         )
-        self.image_frame.grid(row=0, column=0, rowspan=7, sticky="nw", padx=(0, 24))
+        self.image_frame.grid(row=0, column=0, rowspan=9, sticky="nw", padx=(0, 24))
         self.image_frame.grid_propagate(False)
         self.image_label = ttk.Label(self.image_frame, anchor="center", style="Image.TLabel")
         self.image_label.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
         self.values: dict[str, ttk.Label] = {}
         for row, (key, caption) in enumerate((
             ("status", "判定"), ("current", "現在価格"), ("average", "30日平均"),
-            ("difference", "平均との差"), ("lowest", "30日最安値"), ("fetched", "取得日時"),
+            ("seven_average", "7日平均"), ("trend", "短期トレンド"),
+            ("difference", "平均との差"), ("lowest", "30日最安値"),
+            ("stock", "在庫・出荷"), ("fetched", "取得日時"),
         )):
             ttk.Label(content, text=caption, style="Caption.TLabel").grid(row=row, column=1, sticky="w", pady=4)
             label = ttk.Label(content, text="-", style="Value.TLabel")
@@ -226,7 +228,8 @@ class VictorApp(ttk.Frame):
         if product is None:
             return
         self.detail_title.configure(text=product.name)
-        for key in ("average", "difference", "lowest"):
+        self.values["stock"].configure(text=product.stock_status or "-")
+        for key in ("average", "seven_average", "trend", "difference", "lowest"):
             self.values[key].configure(text="-")
         history = self.repository.get_price_history(product.id or 0, 1)
         if history:
@@ -266,6 +269,7 @@ class VictorApp(ttk.Frame):
             category=candidate.category,
             url=candidate.url,
             site=candidate.shop,
+            stock_status=candidate.stock_status,
         )
         saved = self.repository.save_product(product)
         self.logger.info("監視対象追加 product=%s shop=%s category=%s url=%s",
@@ -349,6 +353,11 @@ class VictorApp(ttk.Frame):
         if result:
             self.values["current"].configure(text=f"{result.current_price:,}円")
             self.values["average"].configure(text=self._yen(result.average_price))
+            self.values["seven_average"].configure(text=self._yen(result.seven_day_average))
+            trend = "-"
+            if result.trend_percent is not None:
+                trend = f"{result.trend_label} ({result.trend_percent:+.1f}%)"
+            self.values["trend"].configure(text=trend)
             difference = "-" if result.difference_percent is None else f"{result.difference_percent:+.1f}%"
             self.values["difference"].configure(text=difference)
             self.values["lowest"].configure(text=self._yen(result.lowest_price))
@@ -380,18 +389,77 @@ class VictorApp(ttk.Frame):
             return
         window = tk.Toplevel(self.master)
         window.title(f"価格履歴 - {product.name}")
-        window.geometry("520x420")
+        window.geometry("760x640")
         window.configure(background=COLORS["ink"])
         ttk.Label(window, text=f"相場帳　{product.name}", style="Title.TLabel").pack(anchor="w", padx=12, pady=(12, 0))
-        tree = ttk.Treeview(window, columns=("fetched", "price"), show="headings", style="Ledger.Treeview")
-        tree.heading("fetched", text="日時")
-        tree.heading("price", text="価格")
-        tree.column("fetched", width=260)
-        tree.column("price", width=180, anchor=tk.E)
-        tree.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
-        for record in self.repository.get_price_history(product.id):
-            tree.insert("", tk.END, values=(record.fetched_at.strftime("%Y-%m-%d %H:%M:%S"),
-                                            f"{record.price:,}円"))
+        summaries = list(reversed(self.repository.get_daily_price_summaries(product.id, 30)))
+        chart = tk.Canvas(window, height=260, background="#100d0a", highlightbackground=COLORS["brass_dark"],
+                          highlightthickness=1, bd=0)
+        chart.pack(fill=tk.X, padx=12, pady=(10, 4))
+        chart.bind("<Configure>", lambda event: self._draw_price_chart(chart, summaries))
+
+        columns = ("day", "average", "minimum", "count")
+        tree = ttk.Treeview(window, columns=columns, show="headings", style="Ledger.Treeview")
+        for key, title in (("day", "日付"), ("average", "日次平均"),
+                           ("minimum", "日次最安"), ("count", "取得回数")):
+            tree.heading(key, text=title)
+        tree.column("day", width=180)
+        tree.column("average", width=160, anchor=tk.E)
+        tree.column("minimum", width=160, anchor=tk.E)
+        tree.column("count", width=120, anchor=tk.E)
+        tree.pack(fill=tk.BOTH, expand=True, padx=12, pady=(4, 12))
+        for summary in reversed(summaries):
+            tree.insert("", tk.END, values=(summary.day.isoformat(),
+                                            f"{summary.average_price:,.0f}円",
+                                            f"{summary.minimum_price:,}円",
+                                            f"{summary.sample_count}回"))
+
+    @staticmethod
+    def _draw_price_chart(canvas: tk.Canvas, summaries: list[DailyPriceSummary]) -> None:
+        canvas.delete("all")
+        width = max(canvas.winfo_width(), 100)
+        height = max(canvas.winfo_height(), 100)
+        margin = 42
+        if not summaries:
+            canvas.create_text(width / 2, height / 2, text="価格履歴がありません",
+                               fill=COLORS["muted"], font=("Yu Mincho", 12))
+            return
+        averages = [summary.average_price for summary in summaries]
+        minimums = [summary.minimum_price for summary in summaries]
+        low, high = min(minimums), max(averages)
+        padding = max((high - low) * 0.1, high * 0.01, 1)
+        low -= padding
+        high += padding
+        plot_width = width - margin * 2
+        plot_height = height - margin * 2
+
+        def point(index: int, price: float) -> tuple[float, float]:
+            x = margin + (plot_width / max(len(summaries) - 1, 1)) * index
+            y = margin + plot_height * (high - price) / (high - low)
+            return x, y
+
+        canvas.create_line(margin, margin, margin, height - margin, fill=COLORS["brass_dark"])
+        canvas.create_line(margin, height - margin, width - margin, height - margin,
+                           fill=COLORS["brass_dark"])
+        canvas.create_text(margin - 6, margin, text=f"{high:,.0f}", anchor="e",
+                           fill=COLORS["muted"], font=("Yu Gothic UI", 8))
+        canvas.create_text(margin - 6, height - margin, text=f"{low:,.0f}", anchor="e",
+                           fill=COLORS["muted"], font=("Yu Gothic UI", 8))
+        average_points = [coordinate for index, price in enumerate(averages)
+                          for coordinate in point(index, price)]
+        if len(summaries) > 1:
+            canvas.create_line(*average_points, fill=COLORS["gold_bright"], width=2, smooth=True)
+        for index, (average, minimum) in enumerate(zip(averages, minimums)):
+            x, y = point(index, average)
+            canvas.create_oval(x - 3, y - 3, x + 3, y + 3,
+                               fill=COLORS["gold_bright"], outline="")
+            min_x, min_y = point(index, minimum)
+            canvas.create_oval(min_x - 2, min_y - 2, min_x + 2, min_y + 2,
+                               fill="#77834b", outline="")
+        canvas.create_text(margin, height - 16, text=summaries[0].day.isoformat(), anchor="w",
+                           fill=COLORS["muted"], font=("Yu Gothic UI", 8))
+        canvas.create_text(width - margin, height - 16, text=summaries[-1].day.isoformat(), anchor="e",
+                           fill=COLORS["muted"], font=("Yu Gothic UI", 8))
 
     @staticmethod
     def _yen(value: float | int | None) -> str:
@@ -408,6 +476,7 @@ class ProductSearchDialog(tk.Toplevel):
         self.on_add = on_add
         self.candidates: list[ProductCandidate] = []
         self.visible_candidates: list[ProductCandidate] = []
+        self.next_page = 1
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.title("商品検索 - ツクモ商品目録")
         self.geometry("900x620")
@@ -441,7 +510,12 @@ class ProductSearchDialog(tk.Toplevel):
         self.fetch_button = ttk.Button(
             frame, text="商品一覧を取得", style="Plate.TButton", command=self.fetch_catalog
         )
-        self.fetch_button.grid(row=1, column=2, rowspan=2, sticky="e", padx=(10, 0))
+        self.fetch_button.grid(row=1, column=2, sticky="e", padx=(10, 0))
+        self.next_button = ttk.Button(
+            frame, text="次ページを取得", style="Plate.TButton", command=self.fetch_next_page
+        )
+        self.next_button.grid(row=2, column=2, sticky="e", padx=(10, 0), pady=(6, 0))
+        self.next_button.state(["disabled"])
 
         search = ttk.Frame(frame)
         search.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(12, 8))
@@ -491,23 +565,32 @@ class ProductSearchDialog(tk.Toplevel):
         self.category.set(categories[0] if categories else "")
 
     def fetch_catalog(self) -> None:
+        self.next_page = 1
+        self.candidates = []
+        self._start_catalog_fetch(self.next_page, replace=True)
+
+    def fetch_next_page(self) -> None:
+        self._start_catalog_fetch(self.next_page, replace=False)
+
+    def _start_catalog_fetch(self, page: int, replace: bool) -> None:
         shop = self.shop.get()
         category = self.category.get()
         if not shop or not category:
             messagebox.showwarning("商品一覧", "店舗とカテゴリを選択してください。", parent=self)
             return
         self.fetch_button.state(["disabled"])
+        self.next_button.state(["disabled"])
         self.add_button.state(["disabled"])
         self.status.configure(text="ヴィクトルが商品を調査中……")
         self.logger.info("商品一覧取得開始 shop=%s category=%s", shop, category)
         threading.Thread(
-            target=self._fetch_worker, args=(shop, category), daemon=True
+            target=self._fetch_worker, args=(shop, category, page, replace), daemon=True
         ).start()
 
-    def _fetch_worker(self, shop: str, category: str) -> None:
+    def _fetch_worker(self, shop: str, category: str, page: int, replace: bool) -> None:
         try:
-            candidates = self.catalogs.get(shop).fetch(category)
-            self.events.put(("success", candidates))
+            candidates = self.catalogs.get(shop).fetch(category, page)
+            self.events.put(("success", (candidates, page, replace)))
         except Exception as exc:
             self.logger.exception("一覧取得失敗 shop=%s category=%s", shop, category)
             self.events.put(("error", str(exc)))
@@ -521,9 +604,19 @@ class ProductSearchDialog(tk.Toplevel):
                 self.fetch_button.state(["!disabled"])
                 self.add_button.state(["!disabled"])
                 if event == "success":
-                    self.candidates = list(payload)  # type: ignore[arg-type]
+                    candidates, page, replace = payload  # type: ignore[misc]
+                    if replace:
+                        self.candidates = list(candidates)
+                    else:
+                        known_urls = {candidate.url for candidate in self.candidates}
+                        self.candidates.extend(
+                            candidate for candidate in candidates if candidate.url not in known_urls
+                        )
+                    self.next_page = page + 1
+                    if candidates:
+                        self.next_button.state(["!disabled"])
                     self.logger.info("商品一覧取得成功 shop=%s category=%s count=%s",
-                                     self.shop.get(), self.category.get(), len(self.candidates))
+                                     self.shop.get(), self.category.get(), len(candidates))
                     self._filter_candidates()
                     if self.candidates:
                         self.status.configure(text=f"{len(self.candidates)}件を取得しました。")

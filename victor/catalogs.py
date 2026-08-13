@@ -30,7 +30,12 @@ class CatalogFetcher(ABC):
 
 class TsukumoCatalogFetcher(CatalogFetcher):
     SITE_NAME = "ツクモ"
-    CATEGORY_PATHS = {"GPU": "/search/c20:2018/"}
+    CATEGORY_PATHS = {
+        "GPU": "/search/c20:2018/",
+        "CPU": "/search/c20:2005/",
+        "SSD": "/search/c20:2014:2014060/",
+        "メモリ": "/search/c20:2010/",
+    }
 
     def __init__(self, user_agent: str, timeout_seconds: int = 15,
                  logger: logging.Logger | None = None) -> None:
