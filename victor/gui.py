@@ -15,8 +15,10 @@ from PIL import Image, ImageTk
 from victor.catalogs import CatalogFetcherRegistry
 from victor.database import VictorRepository
 from victor.evaluator import LABELS, MESSAGES
-from victor.models import DailyPriceSummary, EvaluationResult, Product, ProductCandidate, TimingStatus
+from victor.models import (DailyPriceSummary, EvaluationResult, Product, ProductCandidate,
+                           ProductMatch, TimingStatus)
 from victor.normalization import matches_product_name
+from victor.identity import identify_candidate, match_candidates
 from victor.specifications import format_specifications
 from victor.services import InvestigationResult, PriceInvestigationService
 
@@ -278,6 +280,9 @@ class VictorApp(ttk.Frame):
             site=candidate.shop,
             stock_status=candidate.stock_status,
             specifications=candidate.specifications,
+            manufacturer=candidate.manufacturer,
+            model_number=identify_candidate(candidate).model_number,
+            jan_code=identify_candidate(candidate).jan_code,
         )
         saved = self.repository.save_product(product)
         self.logger.info("監視対象追加 product=%s shop=%s category=%s url=%s",
@@ -376,6 +381,8 @@ class VictorApp(ttk.Frame):
             confidence = result.confidence_label or "-"
             if result.excluded_outlier_count:
                 confidence += f"（外れ値{result.excluded_outlier_count}日除外）"
+            if result.volatility_percent is not None:
+                confidence += f" / 変動{result.volatility_percent:.1f}%"
             self.values["confidence"].configure(text=confidence)
             difference = "-" if result.difference_percent is None else f"{result.difference_percent:+.1f}%"
             self.values["difference"].configure(text=difference)
@@ -541,9 +548,9 @@ class ProductSearchDialog(tk.Toplevel):
         self.visible_candidates: list[ProductCandidate] = []
         self.next_page = 1
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
-        self.title("商品検索 - ツクモ商品目録")
-        self.geometry("900x620")
-        self.minsize(760, 520)
+        self.title("商品検索 - EC商品目録")
+        self.geometry("1180x760")
+        self.minsize(980, 640)
         self.configure(background=COLORS["ink"])
         self.transient(parent)
         self.grab_set()
@@ -596,9 +603,9 @@ class ProductSearchDialog(tk.Toplevel):
         self.results.heading("specifications", text="主な仕様")
         self.results.heading("manufacturer", text="メーカー")
         self.results.heading("stock", text="在庫・出荷")
-        self.results.column("name", width=310)
+        self.results.column("name", width=410)
         self.results.column("price", width=100, anchor=tk.E)
-        self.results.column("specifications", width=230)
+        self.results.column("specifications", width=310)
         self.results.column("manufacturer", width=130)
         self.results.column("stock", width=130)
         self.results.grid(row=4, column=0, columnspan=3, sticky="nsew")
@@ -614,10 +621,14 @@ class ProductSearchDialog(tk.Toplevel):
         ttk.Button(footer, text="閉じる", style="Plate.TButton", command=self.destroy).grid(
             row=0, column=1, padx=6
         )
+        self.compare_button = ttk.Button(
+            footer, text="別店舗と比較", style="Plate.TButton", command=self.compare_selected
+        )
+        self.compare_button.grid(row=0, column=2, padx=6)
         self.add_button = ttk.Button(
             footer, text="監視対象に追加", style="Plate.TButton", command=self.add_selected
         )
-        self.add_button.grid(row=0, column=2)
+        self.add_button.grid(row=0, column=3)
         self._update_categories()
         self.after(100, self._process_events)
 
@@ -668,6 +679,7 @@ class ProductSearchDialog(tk.Toplevel):
                 event, payload = self.events.get_nowait()
                 self.fetch_button.state(["!disabled"])
                 self.add_button.state(["!disabled"])
+                self.compare_button.state(["!disabled"])
                 if event == "success":
                     candidates, page, replace = payload  # type: ignore[misc]
                     if replace:
@@ -688,6 +700,10 @@ class ProductSearchDialog(tk.Toplevel):
                     else:
                         self.status.configure(text="商品が見つかりませんでした。")
                         messagebox.showinfo("商品一覧", "商品が見つかりませんでした。", parent=self)
+                elif event == "comparison":
+                    source, matches, failures = payload  # type: ignore[misc]
+                    ProductComparisonDialog(self, source, matches, failures, self.on_add)
+                    self.status.configure(text=f"別店舗の一致候補を{len(matches)}件取得しました。")
                 else:
                     self.status.configure(text="商品一覧の取得に失敗しました。")
                     messagebox.showerror("商品一覧取得エラー", str(payload), parent=self)
@@ -722,6 +738,84 @@ class ProductSearchDialog(tk.Toplevel):
             return
         candidate = self.visible_candidates[int(selection[0])]
         if self.on_add(candidate):
+            self.destroy()
+
+    def compare_selected(self) -> None:
+        selection = self.results.selection()
+        if not selection:
+            self.status.configure(text="比較する商品を選択してください。")
+            return
+        source = self.visible_candidates[int(selection[0])]
+        self.compare_button.state(["disabled"])
+        self.status.configure(text="別店舗の商品を照合中……")
+        threading.Thread(target=self._compare_worker, args=(source,), daemon=True).start()
+
+    def _compare_worker(self, source: ProductCandidate) -> None:
+        candidates: list[ProductCandidate] = []
+        failures: list[str] = []
+        for shop in self.catalogs.shops:
+            if shop == source.shop:
+                continue
+            fetcher = self.catalogs.get(shop)
+            if source.category not in fetcher.supported_categories:
+                continue
+            for page in range(1, 4):
+                try:
+                    page_items = fetcher.fetch(source.category, page)
+                    candidates.extend(page_items)
+                    if not page_items:
+                        break
+                except Exception as exc:
+                    failures.append(f"{shop} {page}ページ: {exc}")
+                    self.logger.warning("店舗比較取得失敗 shop=%s page=%s error=%s", shop, page, exc)
+                    break
+                time.sleep(0.3)
+        self.events.put(("comparison", (source, match_candidates(source, candidates), failures)))
+
+
+class ProductComparisonDialog(tk.Toplevel):
+    def __init__(self, parent: tk.Toplevel, source: ProductCandidate,
+                 matches: list[ProductMatch], failures: list[str],
+                 on_add: Callable[[ProductCandidate], bool]) -> None:
+        super().__init__(parent)
+        self.title("別店舗価格比較")
+        self.geometry("980x460")
+        self.minsize(820, 380)
+        self.configure(background=COLORS["ink"])
+        self.matches = matches
+        self.on_add = on_add
+        frame = ttk.Frame(self, padding=16)
+        frame.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(frame, text=source.name, style="Heading.TLabel", wraplength=900).pack(
+            fill=tk.X, pady=(0, 10)
+        )
+        columns = ("confidence", "shop", "price", "stock", "reason", "name")
+        tree = ttk.Treeview(frame, columns=columns, show="headings", style="Ledger.Treeview")
+        for key, label, width in (
+            ("confidence", "一致度", 70), ("shop", "店舗", 90), ("price", "価格", 100),
+            ("stock", "在庫", 110), ("reason", "根拠", 140), ("name", "商品名", 420),
+        ):
+            tree.heading(key, text=label)
+            tree.column(key, width=width, anchor=tk.E if key == "price" else tk.W)
+        tree.pack(fill=tk.BOTH, expand=True)
+        for match in matches:
+            candidate = match.candidate
+            tree.insert("", tk.END, values=(match.confidence, candidate.shop,
+                        f"{candidate.price:,}円", candidate.stock_status or "-",
+                        match.reason, candidate.name))
+        note = "一致商品は見つかりませんでした。" if not matches else f"{len(matches)}件の候補"
+        if failures:
+            note += f" / 取得失敗 {len(failures)}件"
+        ttk.Label(frame, text=note, style="PanelMuted.TLabel").pack(anchor="w", pady=(8, 0))
+        ttk.Button(frame, text="選択商品を監視対象に追加", style="Plate.TButton",
+                   command=lambda: self._add_selected(tree)).pack(anchor="e", pady=(8, 0))
+
+    def _add_selected(self, tree: ttk.Treeview) -> None:
+        selection = tree.selection()
+        if not selection:
+            return
+        index = tree.index(selection[0])
+        if self.on_add(self.matches[index].candidate):
             self.destroy()
 
 

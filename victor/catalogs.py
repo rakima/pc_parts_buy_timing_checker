@@ -11,6 +11,7 @@ from html.parser import HTMLParser
 from typing import Callable
 
 from victor.models import ProductCandidate
+from victor.fetch_errors import ParseFailure, classify_fetch_error
 from victor.specifications import extract_specifications
 
 
@@ -60,8 +61,11 @@ class TsukumoCatalogFetcher(CatalogFetcher):
                 charset = response.headers.get_content_charset() or "utf-8"
                 content = response.read().decode(charset, errors="replace")
         except Exception as exc:
-            raise CatalogFetchError(f"商品一覧を取得できませんでした: {exc}") from exc
-        return self.parse_catalog(content, category, self.logger)
+            raise classify_fetch_error(exc, "商品一覧") from exc
+        candidates = self.parse_catalog(content, category, self.logger)
+        if not candidates:
+            raise ParseFailure("商品一覧が0件です。サイト構造が変更された可能性があります")
+        return candidates
 
     def _catalog_url(self, category: str, page: int) -> str:
         path = self.CATEGORY_PATHS[category]
@@ -105,8 +109,11 @@ class DosparaCatalogFetcher(CatalogFetcher):
             with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
                 content = response.read().decode(response.headers.get_content_charset() or "utf-8", errors="replace")
         except Exception as exc:
-            raise CatalogFetchError(f"商品一覧を取得できませんでした: {exc}") from exc
-        return self.parse_catalog(content, category, self.logger)
+            raise classify_fetch_error(exc, "商品一覧") from exc
+        candidates = self.parse_catalog(content, category, self.logger)
+        if not candidates:
+            raise ParseFailure("商品一覧が0件です。サイト構造が変更された可能性があります")
+        return candidates
 
     @classmethod
     def parse_catalog(cls, content: str, category: str,

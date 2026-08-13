@@ -15,6 +15,10 @@ class EvaluationSettings:
     buy_percent: float = -10.0
     best_buy_percent: float = -15.0
 
+    def __post_init__(self) -> None:
+        if not self.bad_percent > self.good_percent > self.buy_percent > self.best_buy_percent:
+            raise ValueError("判定閾値は bad > good > buy > best_buy の順に指定してください")
+
 
 @dataclass(slots=True)
 class AppSettings:

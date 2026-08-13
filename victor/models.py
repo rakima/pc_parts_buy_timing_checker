@@ -25,6 +25,9 @@ class Product:
     enabled: bool = True
     stock_status: str | None = None
     specifications: tuple[tuple[str, str], ...] = ()
+    manufacturer: str | None = None
+    model_number: str | None = None
+    jan_code: str | None = None
     id: int | None = None
     created_at: datetime | None = None
 
@@ -68,6 +71,20 @@ class ProductDetail:
 
 
 @dataclass(frozen=True, slots=True)
+class ProductIdentity:
+    manufacturer: str | None
+    model_number: str | None
+    jan_code: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ProductMatch:
+    candidate: ProductCandidate
+    confidence: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class DailyPriceSummary:
     day: date
     minimum_price: int
@@ -90,3 +107,4 @@ class EvaluationResult:
     trend_label: str | None = None
     confidence_label: str | None = None
     excluded_outlier_count: int = 0
+    volatility_percent: float | None = None
