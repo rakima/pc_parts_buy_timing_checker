@@ -75,6 +75,19 @@ class BuyTimingEvaluatorTest(unittest.TestCase):
         self.assertEqual(TimingStatus.INSUFFICIENT, result.status)
         self.assertEqual("判定対象外", result.confidence_label)
 
+    def test_reduces_confidence_for_volatile_history(self) -> None:
+        now = datetime(2026, 8, 10)
+        history = [PriceRecord(1, price, now - timedelta(days=day)) for day, price in (
+            (1, 7_000), (8, 10_000), (15, 13_000), (22, 10_000)
+        )]
+        result = self.evaluator.evaluate(9_000, history)
+        self.assertEqual("低（価格変動大）", result.confidence_label)
+        self.assertGreater(result.volatility_percent or 0, 15)
+
+    def test_rejects_inconsistent_thresholds(self) -> None:
+        with self.assertRaises(ValueError):
+            EvaluationSettings(good_percent=-10, buy_percent=-5)
+
 
 if __name__ == "__main__":
     unittest.main()

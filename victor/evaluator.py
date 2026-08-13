@@ -3,6 +3,7 @@ from __future__ import annotations
 from victor.config import EvaluationSettings
 from collections import defaultdict
 from datetime import timedelta
+from statistics import pstdev
 
 from victor.models import DailyPriceSummary, EvaluationResult, PriceRecord, TimingStatus
 
@@ -48,6 +49,7 @@ class BuyTimingEvaluator:
 
         filtered = self._exclude_outliers(daily)
         average = sum(item.average_price for item in filtered) / len(filtered)
+        volatility = pstdev(item.average_price for item in filtered) / average * 100
         difference = ((current_price - average) / average) * 100
         status = self._status_for_difference(difference)
         latest_day = max(item.day for item in daily)
@@ -68,8 +70,9 @@ class BuyTimingEvaluator:
             lowest_price=min(item.minimum_price for item in filtered),
             seven_day_average=seven_average, thirty_day_average=average,
             trend_percent=trend_percent, trend_label=trend_label,
-            confidence_label=self._confidence(filtered),
+            confidence_label=self._confidence(filtered, volatility),
             excluded_outlier_count=len(daily) - len(filtered),
+            volatility_percent=volatility,
         )
 
     def _has_enough_history(self, history: list[DailyPriceSummary]) -> bool:
@@ -106,8 +109,10 @@ class BuyTimingEvaluator:
         return [item for item in summaries if minimum <= item.average_price <= maximum] or summaries
 
     @staticmethod
-    def _confidence(summaries: list[DailyPriceSummary]) -> str:
+    def _confidence(summaries: list[DailyPriceSummary], volatility: float = 0) -> str:
         span = (max(item.day for item in summaries) - min(item.day for item in summaries)).days
+        if volatility > 15:
+            return "低（価格変動大）"
         if len(summaries) >= 14 and span >= 21:
             return "高"
         if len(summaries) >= 7 and span >= 14:
