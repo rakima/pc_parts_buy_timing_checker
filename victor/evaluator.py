@@ -5,7 +5,8 @@ from collections import defaultdict
 from datetime import timedelta
 from statistics import pstdev
 
-from victor.models import DailyPriceSummary, EvaluationResult, PriceRecord, TimingStatus
+from victor.models import (DailyPriceSummary, EvaluationResult, EvaluationSource,
+                           ExternalPricePoint, PriceRecord, TimingStatus)
 
 
 LABELS = {
@@ -36,7 +37,9 @@ class BuyTimingEvaluator:
         self.settings = settings
 
     def evaluate(self, current_price: int, history: list[PriceRecord],
-                 stock_status: str | None = None) -> EvaluationResult:
+                 stock_status: str | None = None,
+                 external_history: list[ExternalPricePoint] | None = None,
+                 external_minimum_points: int = 5) -> EvaluationResult:
         daily = self.summarize_daily(history)
         if stock_status in ("在庫なし", "販売終了"):
             return EvaluationResult(
@@ -44,8 +47,13 @@ class BuyTimingEvaluator:
                 "現在は購入できません。在庫の回復を待つのだ。", current_price,
                 confidence_label="判定対象外",
             )
+        source = EvaluationSource.OWN_HISTORY
         if not self._has_enough_history(daily):
-            return self._result(TimingStatus.INSUFFICIENT, current_price)
+            external_daily = self.summarize_external_daily(external_history or [])
+            if len(external_daily) < external_minimum_points:
+                return self._result(TimingStatus.INSUFFICIENT, current_price)
+            daily = external_daily
+            source = EvaluationSource.KAKAKU_MARKET_HISTORY
 
         filtered = self._exclude_outliers(daily)
         average = sum(item.average_price for item in filtered) / len(filtered)
@@ -73,6 +81,7 @@ class BuyTimingEvaluator:
             confidence_label=self._confidence(filtered, volatility),
             excluded_outlier_count=len(daily) - len(filtered),
             volatility_percent=volatility,
+            evaluation_source=source,
         )
 
     def _has_enough_history(self, history: list[DailyPriceSummary]) -> bool:
@@ -81,11 +90,22 @@ class BuyTimingEvaluator:
         dates = [item.day for item in history]
         return (max(dates) - min(dates)).days >= self.settings.minimum_history_days
 
+    def has_sufficient_history(self, history: list[PriceRecord]) -> bool:
+        return self._has_enough_history(self.summarize_daily(history))
+
     @staticmethod
     def summarize_daily(history: list[PriceRecord]) -> list[DailyPriceSummary]:
         prices: dict[object, list[int]] = defaultdict(list)
         for item in history:
             prices[item.fetched_at.date()].append(item.price)
+        return [DailyPriceSummary(day, min(values), sum(values) / len(values), len(values))
+                for day, values in prices.items()]
+
+    @staticmethod
+    def summarize_external_daily(history: list[ExternalPricePoint]) -> list[DailyPriceSummary]:
+        prices: dict[object, list[int]] = defaultdict(list)
+        for item in history:
+            prices[item.observed_at.date()].append(item.price)
         return [DailyPriceSummary(day, min(values), sum(values) / len(values), len(values))
                 for day, values in prices.items()]
 
