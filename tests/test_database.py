@@ -6,7 +6,8 @@ from contextlib import closing
 import unittest
 
 from victor.database import VictorRepository
-from victor.models import PriceRecord, Product
+from victor.models import (ExternalPricePoint, ExternalProductMapping, PriceRecord,
+                           Product)
 
 
 class VictorRepositoryTest(unittest.TestCase):
@@ -46,6 +47,21 @@ class VictorRepositoryTest(unittest.TestCase):
         self.assertEqual(89_800, daily[0].minimum_price)
         self.assertEqual(90_000, daily[0].average_price)
         self.assertEqual(2, daily[0].sample_count)
+
+        mapping = ExternalProductMapping(product.id or 0, "KAKAKU", "K0000000001",
+                                         "https://kakaku.com/item/K0000000001/",
+                                         "model_exact", datetime(2026, 8, 10))
+        self.repository.save_external_mapping(mapping)
+        self.repository.save_external_prices([
+            ExternalPricePoint("KAKAKU", mapping.external_id, 88_000,
+                               datetime(2026, 8, 9), fetched_at=datetime(2026, 8, 10))
+        ])
+        self.assertEqual(mapping.external_id,
+                         self.repository.get_external_mapping(product.id or 0, "KAKAKU").external_id)
+        external = self.repository.get_external_prices(
+            "KAKAKU", mapping.external_id, datetime(2026, 8, 1)
+        )
+        self.assertEqual(88_000, external[0].price)
 
         self.repository.delete_product(product.id or 0)
         self.assertEqual([], self.repository.list_products())

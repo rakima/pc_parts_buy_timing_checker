@@ -16,6 +16,16 @@ class TimingStatus(StrEnum):
     BEST_BUY = "best_buy"
 
 
+class EvaluationSource(StrEnum):
+    OWN_HISTORY = "OWN_HISTORY"
+    KAKAKU_MARKET_HISTORY = "KAKAKU_MARKET_HISTORY"
+    INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
+
+
+class PriceHistoryType(StrEnum):
+    MARKET_LOWEST = "MARKET_LOWEST"
+
+
 @dataclass(slots=True)
 class Product:
     name: str
@@ -85,6 +95,26 @@ class ProductMatch:
 
 
 @dataclass(frozen=True, slots=True)
+class ExternalProductMapping:
+    product_id: int
+    provider: str
+    external_id: str
+    external_url: str
+    match_method: str
+    matched_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ExternalPricePoint:
+    provider: str
+    external_product_id: str
+    price: int
+    observed_at: datetime
+    price_type: PriceHistoryType = PriceHistoryType.MARKET_LOWEST
+    fetched_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class DailyPriceSummary:
     day: date
     minimum_price: int
@@ -108,3 +138,4 @@ class EvaluationResult:
     confidence_label: str | None = None
     excluded_outlier_count: int = 0
     volatility_percent: float | None = None
+    evaluation_source: EvaluationSource = EvaluationSource.INSUFFICIENT_DATA

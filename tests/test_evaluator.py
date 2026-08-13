@@ -3,7 +3,8 @@ import unittest
 
 from victor.config import EvaluationSettings
 from victor.evaluator import BuyTimingEvaluator
-from victor.models import PriceRecord, TimingStatus
+from victor.models import (EvaluationSource, ExternalPricePoint, PriceRecord,
+                           TimingStatus)
 
 
 class BuyTimingEvaluatorTest(unittest.TestCase):
@@ -87,6 +88,26 @@ class BuyTimingEvaluatorTest(unittest.TestCase):
     def test_rejects_inconsistent_thresholds(self) -> None:
         with self.assertRaises(ValueError):
             EvaluationSettings(good_percent=-10, buy_percent=-5)
+
+    def test_prefers_own_history_over_external_history(self) -> None:
+        external = [ExternalPricePoint("KAKAKU", "K1", 20_000,
+                    datetime(2026, 8, day)) for day in range(1, 6)]
+        result = self.evaluator.evaluate(9_000, self.history, external_history=external)
+        self.assertEqual(EvaluationSource.OWN_HISTORY, result.evaluation_source)
+        self.assertEqual(10_000, result.average_price)
+
+    def test_uses_external_history_when_own_history_is_insufficient(self) -> None:
+        external = [ExternalPricePoint("KAKAKU", "K1", 10_000,
+                    datetime(2026, 8, day)) for day in range(1, 6)]
+        result = self.evaluator.evaluate(9_000, [], external_history=external)
+        self.assertEqual(EvaluationSource.KAKAKU_MARKET_HISTORY, result.evaluation_source)
+        self.assertEqual(TimingStatus.BUY, result.status)
+
+    def test_reports_insufficient_source_when_both_histories_are_short(self) -> None:
+        external = [ExternalPricePoint("KAKAKU", "K1", 10_000,
+                    datetime(2026, 8, day)) for day in range(1, 5)]
+        result = self.evaluator.evaluate(9_000, [], external_history=external)
+        self.assertEqual(EvaluationSource.INSUFFICIENT_DATA, result.evaluation_source)
 
 
 if __name__ == "__main__":

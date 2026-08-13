@@ -16,7 +16,7 @@ from victor.catalogs import CatalogFetcherRegistry
 from victor.database import VictorRepository
 from victor.evaluator import LABELS, MESSAGES
 from victor.models import (DailyPriceSummary, EvaluationResult, Product, ProductCandidate,
-                           ProductMatch, TimingStatus)
+                           ProductMatch, TimingStatus, EvaluationSource)
 from victor.normalization import matches_product_name
 from victor.identity import identify_candidate, match_candidates
 from victor.specifications import format_specifications
@@ -182,16 +182,17 @@ class VictorApp(ttk.Frame):
             content, width=STATUS_IMAGE_SIZE[0], height=STATUS_IMAGE_SIZE[1],
             background=COLORS["wood"], bd=0,
         )
-        self.image_frame.grid(row=0, column=0, rowspan=11, sticky="nw", padx=(0, 24))
+        self.image_frame.grid(row=0, column=0, rowspan=12, sticky="nw", padx=(0, 24))
         self.image_frame.grid_propagate(False)
         self.image_label = ttk.Label(self.image_frame, anchor="center", style="Image.TLabel")
         self.image_label.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
         self.values: dict[str, ttk.Label] = {}
         for row, (key, caption) in enumerate((
-            ("status", "判定"), ("current", "現在価格"), ("average", "30日平均"),
+            ("status", "判定"), ("current", "現在価格"), ("average", "比較30日平均"),
             ("seven_average", "7日平均"), ("trend", "短期トレンド"),
             ("confidence", "判定信頼度"),
             ("difference", "平均との差"), ("lowest", "30日最安値"),
+            ("source", "参考データ"),
             ("stock", "在庫・出荷"), ("specifications", "主な仕様"),
             ("fetched", "取得日時"),
         )):
@@ -238,7 +239,7 @@ class VictorApp(ttk.Frame):
         self.values["specifications"].configure(
             text=format_specifications(product.specifications) or "-"
         )
-        for key in ("average", "seven_average", "trend", "confidence", "difference", "lowest"):
+        for key in ("average", "seven_average", "trend", "confidence", "difference", "lowest", "source"):
             self.values[key].configure(text="-")
         history = self.repository.get_price_history(product.id or 0, 1)
         if history:
@@ -387,6 +388,16 @@ class VictorApp(ttk.Frame):
             difference = "-" if result.difference_percent is None else f"{result.difference_percent:+.1f}%"
             self.values["difference"].configure(text=difference)
             self.values["lowest"].configure(text=self._yen(result.lowest_price))
+            source_labels = {
+                EvaluationSource.OWN_HISTORY: "自前の店舗価格履歴",
+                EvaluationSource.KAKAKU_MARKET_HISTORY: "価格.com 市場最安値履歴",
+                EvaluationSource.INSUFFICIENT_DATA: "データ不足",
+            }
+            self.values["source"].configure(text=source_labels[result.evaluation_source])
+            if result.evaluation_source == EvaluationSource.KAKAKU_MARKET_HISTORY:
+                self.message_label.configure(
+                    text=result.message + "\n※ 自前履歴が不足しているため、価格.comの市場最安値履歴を参考にしています。"
+                )
         image = self._load_image(status)
         self.image_label.configure(image=image, text="" if image else f"ヴィクトル\n{LABELS[status]}")
         self.image_label.image = image

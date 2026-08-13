@@ -11,6 +11,7 @@ from victor.database import VictorRepository
 from victor.details import (DosparaProductDetailFetcher, ProductDetailFetcherRegistry,
                             TsukumoProductDetailFetcher)
 from victor.evaluator import BuyTimingEvaluator
+from victor.external_history import KakakuPriceHistoryProvider
 from victor.fetchers import GenericHtmlPriceFetcher, PriceFetcherRegistry, TsukumoPriceFetcher
 from victor.gui import VictorApp
 from victor.logging_config import configure_logging
@@ -46,8 +47,15 @@ def main() -> None:
             settings.user_agent, settings.request_timeout_seconds
         ))
         service = PriceInvestigationService(
-            repository, registry, details, evaluator,
-            settings.evaluation.comparison_days, logger
+            repository, registry, details,
+            KakakuPriceHistoryProvider(
+                settings.user_agent, settings.request_timeout_seconds,
+                settings.external_history_retry_count,
+                settings.external_history_retry_interval_seconds, logger,
+            ),
+            evaluator, settings.evaluation.comparison_days, logger,
+            settings.external_history_cache_hours,
+            settings.external_history_minimum_points,
         )
         registry.register("ドスパラ", fetcher)
         catalogs.register(
