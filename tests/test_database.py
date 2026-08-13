@@ -45,7 +45,9 @@ class VictorRepositoryTest(unittest.TestCase):
             )
         VictorRepository(legacy_path)
         with sqlite3.connect(legacy_path) as connection:
-            columns = {row[1] for row in connection.execute("PRAGMA table_info(products)")}
+            cursor = connection.execute("PRAGMA table_info(products)")
+            columns = {row[1] for row in cursor.fetchall()}
+            cursor.close()
         self.assertIn("stock_status", columns)
 
 
