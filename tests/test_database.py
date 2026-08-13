@@ -45,8 +45,8 @@ class VictorRepositoryTest(unittest.TestCase):
                 "enabled INTEGER NOT NULL, created_at TEXT NOT NULL)"
             )
             cursor.close()
-        VictorRepository(legacy_path)
             connection.commit()
+        VictorRepository(legacy_path)
         with closing(sqlite3.connect(legacy_path)) as connection:
             cursor = connection.execute("PRAGMA table_info(products)")
             columns = {row[1] for row in cursor.fetchall()}
