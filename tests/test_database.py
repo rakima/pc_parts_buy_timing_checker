@@ -34,6 +34,11 @@ class VictorRepositoryTest(unittest.TestCase):
 
         self.repository.add_price(PriceRecord(product.id or 0, 89_800, datetime(2026, 8, 10)))
         self.repository.add_price(PriceRecord(product.id or 0, 90_200, datetime(2026, 8, 10, 12)))
+        from victor.models import InventoryRecord
+        self.repository.add_inventory(InventoryRecord(
+            product.id or 0, "在庫あり", datetime(2026, 8, 10, 12)
+        ))
+        self.assertEqual("在庫あり", self.repository.get_inventory_history(product.id or 0)[0].stock_status)
         self.assertEqual(90_200, self.repository.get_price_history(product.id or 0)[0].price)
         daily = self.repository.get_daily_price_summaries(product.id or 0)
         self.assertEqual(89_800, daily[0].minimum_price)

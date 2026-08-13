@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from collections.abc import Iterator
 
-from victor.models import DailyPriceSummary, PriceRecord, Product
+from victor.models import DailyPriceSummary, InventoryRecord, PriceRecord, Product
 
 
 class VictorRepository:
@@ -46,6 +46,13 @@ class VictorRepository:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     product_id INTEGER NOT NULL,
                     price INTEGER NOT NULL CHECK(price >= 0),
+                    fetched_at TEXT NOT NULL,
+                    FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS inventory_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    product_id INTEGER NOT NULL,
+                    stock_status TEXT NOT NULL,
                     fetched_at TEXT NOT NULL,
                     FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
                 );
@@ -114,6 +121,26 @@ class VictorRepository:
             record_id = int(cursor.lastrowid)
             cursor.close()
         return PriceRecord(record.product_id, record.price, record.fetched_at, record_id)
+
+    def add_inventory(self, record: InventoryRecord) -> InventoryRecord:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "INSERT INTO inventory_history(product_id, stock_status, fetched_at) VALUES (?, ?, ?)",
+                (record.product_id, record.stock_status, record.fetched_at.isoformat()),
+            )
+            record_id = int(cursor.lastrowid)
+            cursor.close()
+        return InventoryRecord(record.product_id, record.stock_status, record.fetched_at, record_id)
+
+    def get_inventory_history(self, product_id: int, limit: int = 100) -> list[InventoryRecord]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM inventory_history WHERE product_id=? ORDER BY fetched_at DESC LIMIT ?",
+                (product_id, limit),
+            ).fetchall()
+        return [InventoryRecord(row["product_id"], row["stock_status"],
+                                datetime.fromisoformat(row["fetched_at"]), row["id"])
+                for row in rows]
 
     def get_prices_since(self, product_id: int, since: datetime) -> list[PriceRecord]:
         with self._connect() as connection:

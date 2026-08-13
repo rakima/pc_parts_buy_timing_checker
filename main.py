@@ -4,9 +4,12 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox
 
-from victor.catalogs import CachedCatalogFetcher, CatalogFetcherRegistry, TsukumoCatalogFetcher
+from victor.catalogs import (CachedCatalogFetcher, CatalogFetcherRegistry,
+                             DosparaCatalogFetcher, TsukumoCatalogFetcher)
 from victor.config import SettingsManager
 from victor.database import VictorRepository
+from victor.details import (DosparaProductDetailFetcher, ProductDetailFetcherRegistry,
+                            TsukumoProductDetailFetcher)
 from victor.evaluator import BuyTimingEvaluator
 from victor.fetchers import GenericHtmlPriceFetcher, PriceFetcherRegistry, TsukumoPriceFetcher
 from victor.gui import VictorApp
@@ -35,8 +38,23 @@ def main() -> None:
             )),
         )
         evaluator = BuyTimingEvaluator(settings.evaluation)
+        details = ProductDetailFetcherRegistry()
+        details.register("ツクモ", TsukumoProductDetailFetcher(
+            settings.user_agent, settings.request_timeout_seconds
+        ))
+        details.register("ドスパラ", DosparaProductDetailFetcher(
+            settings.user_agent, settings.request_timeout_seconds
+        ))
         service = PriceInvestigationService(
-            repository, registry, evaluator, settings.evaluation.comparison_days, logger
+            repository, registry, details, evaluator,
+            settings.evaluation.comparison_days, logger
+        )
+        registry.register("ドスパラ", fetcher)
+        catalogs.register(
+            DosparaCatalogFetcher.SITE_NAME,
+            CachedCatalogFetcher(DosparaCatalogFetcher(
+                settings.user_agent, settings.request_timeout_seconds, logger
+            )),
         )
         root = tk.Tk()
         VictorApp(root, repository, service, catalogs,

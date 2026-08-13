@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from victor.catalogs import CachedCatalogFetcher, CatalogFetcher, TsukumoCatalogFetcher
+from victor.catalogs import (CachedCatalogFetcher, CatalogFetcher, DosparaCatalogFetcher,
+                             TsukumoCatalogFetcher)
 from victor.models import ProductCandidate
 
 
@@ -88,6 +89,21 @@ class CachedCatalogFetcherTest(unittest.TestCase):
         current_time[0] += 301
         fetcher.fetch("GPU")
         self.assertEqual(2, source.calls)
+
+
+class DosparaCatalogFetcherTest(unittest.TestCase):
+    def test_parses_product_card_with_specs(self) -> None:
+        html = '''<div class="product p-products-all-item-product" data-pid="IC1">
+        <a href="/SBR31/IC123.html"></a><input class="productName" value="GIGABYTE RTX 5070 12GB" />
+        <div class="p-products-all-item-product__number">109,800</div>
+        <div class="p-products-all-item-product__shipment--red">24時間以内に出荷</div>
+        <th class="p-products-all-item-product__spec__item">メモリ容量</th>
+        <td class="p-products-all-item-product__spec__text">12GB</td></div>'''
+        items = DosparaCatalogFetcher.parse_catalog(html, "GPU")
+        self.assertEqual(1, len(items))
+        self.assertEqual(109_800, items[0].price)
+        self.assertEqual("ドスパラ", items[0].shop)
+        self.assertEqual((("メモリ容量", "12GB"),), items[0].specifications)
 
 
 if __name__ == "__main__":

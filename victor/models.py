@@ -53,6 +53,21 @@ class PriceRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class InventoryRecord:
+    product_id: int
+    stock_status: str
+    fetched_at: datetime
+    id: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProductDetail:
+    price: int
+    stock_status: str | None
+    specifications: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True, slots=True)
 class DailyPriceSummary:
     day: date
     minimum_price: int
@@ -73,3 +88,5 @@ class EvaluationResult:
     thirty_day_average: float | None = None
     trend_percent: float | None = None
     trend_label: str | None = None
+    confidence_label: str | None = None
+    excluded_outlier_count: int = 0
