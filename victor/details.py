@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 from urllib.parse import urlparse
 
 from victor.models import ProductDetail
+from victor.fetch_errors import ParseFailure, classify_fetch_error
 
 
 class ProductDetailFetchError(RuntimeError):
@@ -33,8 +34,11 @@ class StructuredProductDetailFetcher(ProductDetailFetcher):
                 charset = response.headers.get_content_charset() or "utf-8"
                 content = response.read().decode(charset, errors="replace")
         except Exception as exc:
-            raise ProductDetailFetchError(f"商品詳細を取得できませんでした: {exc}") from exc
-        return self.parse(content)
+            raise classify_fetch_error(exc, "商品詳細") from exc
+        try:
+            return self.parse(content)
+        except ProductDetailFetchError as exc:
+            raise ParseFailure(str(exc)) from exc
 
     def validate_url(self, url: str) -> None:
         del url
@@ -55,6 +59,15 @@ class StructuredProductDetailFetcher(ProductDetailFetcher):
             for item in properties:
                 if isinstance(item, dict) and item.get("name") and item.get("value"):
                     specs.append((str(item["name"]), str(item["value"])))
+        for source_key, label in (("sku", "メーカー型番"), ("mpn", "メーカー型番"),
+                                  ("gtin13", "JANコード"), ("gtin", "JANコード")):
+            if product.get(source_key) and not any(key == label for key, _value in specs):
+                specs.append((label, str(product[source_key])))
+        brand = product.get("brand")
+        if isinstance(brand, dict):
+            brand = brand.get("name")
+        if brand and not any(key == "メーカー" for key, _value in specs):
+            specs.append(("メーカー", str(brand)))
         return ProductDetail(price, stock, tuple(specs))
 
     @staticmethod

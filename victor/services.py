@@ -9,7 +9,10 @@ from victor.database import VictorRepository
 from victor.details import ProductDetailFetcherRegistry
 from victor.evaluator import BuyTimingEvaluator
 from victor.fetchers import PriceFetcherRegistry
-from victor.models import EvaluationResult, InventoryRecord, PriceRecord, Product
+from victor.fetch_errors import ProductUnavailableFailure
+from victor.identity import identify_candidate
+from victor.models import (EvaluationResult, InventoryRecord, PriceRecord, Product,
+                           ProductCandidate)
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,7 +51,22 @@ class PriceInvestigationService:
                 product.stock_status = detail.stock_status
                 if detail.specifications:
                     product.specifications = detail.specifications
+                identity = identify_candidate(ProductCandidate(
+                    product.name, detail.price, product.url, product.site, product.category,
+                    manufacturer=product.manufacturer, model_name=product.model_number,
+                    specifications=product.specifications,
+                ))
+                product.manufacturer = product.manufacturer or identity.manufacturer
+                product.model_number = identity.model_number or product.model_number
+                product.jan_code = identity.jan_code or product.jan_code
                 self.repository.save_product(product)
+            except ProductUnavailableFailure:
+                product.stock_status = "販売終了"
+                self.repository.save_product(product)
+                self.repository.add_inventory(
+                    InventoryRecord(product.id, "販売終了", datetime.now())
+                )
+                raise
             except Exception:
                 self.logger.exception("商品詳細取得失敗、価格取得へフォールバック product=%s", product.name)
                 current_price = self.fetchers.get(product.site).fetch(product.url)

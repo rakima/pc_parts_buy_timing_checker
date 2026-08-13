@@ -40,6 +40,9 @@ class VictorRepository:
                     enabled INTEGER NOT NULL DEFAULT 1,
                     stock_status TEXT,
                     specifications_json TEXT NOT NULL DEFAULT '[]',
+                    manufacturer TEXT,
+                    model_number TEXT,
+                    jan_code TEXT,
                     created_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS price_history (
@@ -69,6 +72,9 @@ class VictorRepository:
                 connection.execute(
                     "ALTER TABLE products ADD COLUMN specifications_json TEXT NOT NULL DEFAULT '[]'"
                 )
+            for column in ("manufacturer", "model_number", "jan_code"):
+                if column not in columns:
+                    connection.execute(f"ALTER TABLE products ADD COLUMN {column} TEXT")
 
     def list_products(self) -> list[Product]:
         with self._connect() as connection:
@@ -90,10 +96,12 @@ class VictorRepository:
             if product.id is None:
                 cursor = connection.execute(
                     "INSERT INTO products(name, category, url, site, enabled, stock_status, "
-                    "specifications_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "specifications_json, manufacturer, model_number, jan_code, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (product.name, product.category, product.url, product.site,
                      int(product.enabled), product.stock_status,
-                     json.dumps(product.specifications, ensure_ascii=False), now.isoformat()),
+                     json.dumps(product.specifications, ensure_ascii=False), product.manufacturer,
+                     product.model_number, product.jan_code, now.isoformat()),
                 )
                 product.id = int(cursor.lastrowid)
                 cursor.close()
@@ -101,10 +109,11 @@ class VictorRepository:
             else:
                 connection.execute(
                     "UPDATE products SET name=?, category=?, url=?, site=?, enabled=?, stock_status=?, "
-                    "specifications_json=? WHERE id=?",
+                    "specifications_json=?, manufacturer=?, model_number=?, jan_code=? WHERE id=?",
                     (product.name, product.category, product.url, product.site,
                      int(product.enabled), product.stock_status,
-                     json.dumps(product.specifications, ensure_ascii=False), product.id),
+                     json.dumps(product.specifications, ensure_ascii=False), product.manufacturer,
+                     product.model_number, product.jan_code, product.id),
                 )
         return product
 
@@ -182,6 +191,8 @@ class VictorRepository:
                        specifications=tuple(tuple(item) for item in json.loads(
                            row["specifications_json"] or "[]"
                        )),
+                       manufacturer=row["manufacturer"], model_number=row["model_number"],
+                       jan_code=row["jan_code"],
                        created_at=datetime.fromisoformat(row["created_at"]))
 
     @staticmethod
