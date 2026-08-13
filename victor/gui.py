@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import queue
 import threading
+import time
 import tkinter as tk
 from collections.abc import Callable
 from pathlib import Path
@@ -52,6 +53,19 @@ ACCENT_COLORS = {
     TimingStatus.BUY: "#37694a",
     TimingStatus.BEST_BUY: "#d1a83d",
 }
+
+MINIMUM_RESEARCH_SECONDS = 3.0
+
+
+def wait_for_minimum_duration(
+    started_at: float,
+    minimum_seconds: float = MINIMUM_RESEARCH_SECONDS,
+    clock: Callable[[], float] = time.monotonic,
+    sleeper: Callable[[float], None] = time.sleep,
+) -> None:
+    remaining = minimum_seconds - (clock() - started_at)
+    if remaining > 0:
+        sleeper(remaining)
 
 
 class VictorApp(ttk.Frame):
@@ -205,16 +219,18 @@ class VictorApp(ttk.Frame):
         if product is None:
             return
         self.detail_title.configure(text=product.name)
+        for key in ("average", "difference", "lowest"):
+            self.values[key].configure(text="-")
         history = self.repository.get_price_history(product.id or 0, 1)
         if history:
             latest = history[0]
+            self.values["status"].configure(text="-", style="Value.TLabel")
             self.values["current"].configure(text=f"{latest.price:,}円")
             self.values["fetched"].configure(text=latest.fetched_at.strftime("%Y-%m-%d %H:%M"))
         else:
             self.values["current"].configure(text="未取得")
             self.values["fetched"].configure(text="-")
-        for key in ("status", "average", "difference", "lowest"):
-            self.values[key].configure(text="-")
+            self._show_status(TimingStatus.WAITING)
         self.progress_label.configure(text=f"{product.category} / {product.site}")
 
     def add_product(self) -> None:
@@ -248,6 +264,7 @@ class VictorApp(ttk.Frame):
         self.logger.info("監視対象追加 product=%s shop=%s category=%s url=%s",
                          saved.name, saved.site, saved.category, saved.url)
         self.refresh_products(saved.id)
+        self.progress_label.configure(text=f"「{saved.name}」を監視対象に加えました。")
         return True
 
     def _save_product(self, product: Product) -> None:
@@ -282,13 +299,17 @@ class VictorApp(ttk.Frame):
         threading.Thread(target=self._investigate_worker, args=(product,), daemon=True).start()
 
     def _investigate_worker(self, product: Product) -> None:
+        started_at = time.monotonic()
         try:
             result = self.service.investigate(
                 product, lambda message: self.events.put(("progress", message))
             )
-            self.events.put(("success", result))
+            outcome: tuple[str, object] = ("success", result)
         except Exception as exc:
-            self.events.put(("error", str(exc)))
+            outcome = ("error", str(exc))
+        self.events.put(("progress", "ヴィクトルが判定を吟味中……"))
+        wait_for_minimum_duration(started_at)
+        self.events.put(outcome)
 
     def _process_events(self) -> None:
         try:
@@ -535,9 +556,6 @@ class ProductSearchDialog(tk.Toplevel):
             return
         candidate = self.visible_candidates[int(selection[0])]
         if self.on_add(candidate):
-            messagebox.showinfo(
-                "監視対象", f"「{candidate.name}」を監視対象へ追加しました。", parent=self
-            )
             self.destroy()
 
 
