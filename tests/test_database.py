@@ -2,6 +2,7 @@ from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import sqlite3
+from contextlib import closing
 import unittest
 
 from victor.database import VictorRepository
@@ -37,7 +38,7 @@ class VictorRepositoryTest(unittest.TestCase):
 
     def test_adds_stock_column_to_existing_database(self) -> None:
         legacy_path = Path(self.temporary_directory.name) / "legacy.db"
-        with sqlite3.connect(legacy_path) as connection:
+        with closing(sqlite3.connect(legacy_path)) as connection:
             cursor = connection.execute(
                 "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT NOT NULL, "
                 "category TEXT NOT NULL, url TEXT NOT NULL, site TEXT NOT NULL, "
@@ -45,7 +46,8 @@ class VictorRepositoryTest(unittest.TestCase):
             )
             cursor.close()
         VictorRepository(legacy_path)
-        with sqlite3.connect(legacy_path) as connection:
+            connection.commit()
+        with closing(sqlite3.connect(legacy_path)) as connection:
             cursor = connection.execute("PRAGMA table_info(products)")
             columns = {row[1] for row in cursor.fetchall()}
             cursor.close()
