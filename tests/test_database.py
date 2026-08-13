@@ -30,7 +30,12 @@ class VictorRepositoryTest(unittest.TestCase):
         self.assertIsNone(self.repository.get_product_by_url("https://example.com/missing"))
 
         self.repository.add_price(PriceRecord(product.id or 0, 89_800, datetime(2026, 8, 10)))
-        self.assertEqual(89_800, self.repository.get_price_history(product.id or 0)[0].price)
+        self.repository.add_price(PriceRecord(product.id or 0, 90_200, datetime(2026, 8, 10, 12)))
+        self.assertEqual(90_200, self.repository.get_price_history(product.id or 0)[0].price)
+        daily = self.repository.get_daily_price_summaries(product.id or 0)
+        self.assertEqual(89_800, daily[0].minimum_price)
+        self.assertEqual(90_000, daily[0].average_price)
+        self.assertEqual(2, daily[0].sample_count)
 
         self.repository.delete_product(product.id or 0)
         self.assertEqual([], self.repository.list_products())

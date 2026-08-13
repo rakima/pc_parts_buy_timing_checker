@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from collections.abc import Iterator
 
-from victor.models import PriceRecord, Product
+from victor.models import DailyPriceSummary, PriceRecord, Product
 
 
 class VictorRepository:
@@ -122,6 +122,21 @@ class VictorRepository:
                 "ORDER BY fetched_at DESC LIMIT ?", (product_id, limit)
             ).fetchall()
         return [self._price_from_row(row) for row in rows]
+
+    def get_daily_price_summaries(self, product_id: int, limit: int = 30) -> list[DailyPriceSummary]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT date(fetched_at) AS day, MIN(price) AS minimum_price, "
+                "AVG(price) AS average_price, COUNT(*) AS sample_count "
+                "FROM price_history WHERE product_id=? GROUP BY date(fetched_at) "
+                "ORDER BY day DESC LIMIT ?", (product_id, limit)
+            ).fetchall()
+        return [DailyPriceSummary(
+            day=datetime.strptime(row["day"], "%Y-%m-%d").date(),
+            minimum_price=row["minimum_price"],
+            average_price=row["average_price"],
+            sample_count=row["sample_count"],
+        ) for row in rows]
 
     @staticmethod
     def _product_from_row(row: sqlite3.Row) -> Product:

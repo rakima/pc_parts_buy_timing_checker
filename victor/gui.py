@@ -178,13 +178,14 @@ class VictorApp(ttk.Frame):
             content, width=STATUS_IMAGE_SIZE[0], height=STATUS_IMAGE_SIZE[1],
             background=COLORS["wood"], bd=0,
         )
-        self.image_frame.grid(row=0, column=0, rowspan=7, sticky="nw", padx=(0, 24))
+        self.image_frame.grid(row=0, column=0, rowspan=9, sticky="nw", padx=(0, 24))
         self.image_frame.grid_propagate(False)
         self.image_label = ttk.Label(self.image_frame, anchor="center", style="Image.TLabel")
         self.image_label.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
         self.values: dict[str, ttk.Label] = {}
         for row, (key, caption) in enumerate((
             ("status", "判定"), ("current", "現在価格"), ("average", "30日平均"),
+            ("seven_average", "7日平均"), ("trend", "短期トレンド"),
             ("difference", "平均との差"), ("lowest", "30日最安値"),
             ("stock", "在庫・出荷"), ("fetched", "取得日時"),
         )):
@@ -228,7 +229,7 @@ class VictorApp(ttk.Frame):
             return
         self.detail_title.configure(text=product.name)
         self.values["stock"].configure(text=product.stock_status or "-")
-        for key in ("average", "difference", "lowest"):
+        for key in ("average", "seven_average", "trend", "difference", "lowest"):
             self.values[key].configure(text="-")
         history = self.repository.get_price_history(product.id or 0, 1)
         if history:
@@ -352,6 +353,11 @@ class VictorApp(ttk.Frame):
         if result:
             self.values["current"].configure(text=f"{result.current_price:,}円")
             self.values["average"].configure(text=self._yen(result.average_price))
+            self.values["seven_average"].configure(text=self._yen(result.seven_day_average))
+            trend = "-"
+            if result.trend_percent is not None:
+                trend = f"{result.trend_label} ({result.trend_percent:+.1f}%)"
+            self.values["trend"].configure(text=trend)
             difference = "-" if result.difference_percent is None else f"{result.difference_percent:+.1f}%"
             self.values["difference"].configure(text=difference)
             self.values["lowest"].configure(text=self._yen(result.lowest_price))

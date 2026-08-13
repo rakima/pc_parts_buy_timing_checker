@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 
 
@@ -50,6 +50,14 @@ class PriceRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class DailyPriceSummary:
+    day: date
+    minimum_price: int
+    average_price: float
+    sample_count: int
+
+
+@dataclass(frozen=True, slots=True)
 class EvaluationResult:
     status: TimingStatus
     label: str
@@ -58,3 +66,7 @@ class EvaluationResult:
     average_price: float | None = None
     difference_percent: float | None = None
     lowest_price: int | None = None
+    seven_day_average: float | None = None
+    thirty_day_average: float | None = None
+    trend_percent: float | None = None
+    trend_label: str | None = None

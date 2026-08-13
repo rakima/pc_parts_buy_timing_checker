@@ -37,6 +37,30 @@ class BuyTimingEvaluatorTest(unittest.TestCase):
         self.assertEqual(TimingStatus.INSUFFICIENT,
                          self.evaluator.evaluate(9_000, history).status)
 
+    def test_uses_one_daily_average_per_day(self) -> None:
+        now = datetime(2026, 8, 10)
+        history = [
+            PriceRecord(1, 8_000, now - timedelta(days=15)),
+            PriceRecord(1, 12_000, now - timedelta(days=15, hours=-1)),
+            PriceRecord(1, 10_000, now - timedelta(days=8)),
+            PriceRecord(1, 10_000, now - timedelta(days=1)),
+        ]
+        result = self.evaluator.evaluate(10_000, history)
+        self.assertEqual(10_000, result.thirty_day_average)
+
+    def test_calculates_falling_short_term_trend(self) -> None:
+        now = datetime(2026, 8, 10)
+        history = [
+            PriceRecord(1, 10_000, now - timedelta(days=15)),
+            PriceRecord(1, 10_000, now - timedelta(days=8)),
+            PriceRecord(1, 9_000, now - timedelta(days=6)),
+            PriceRecord(1, 9_000, now - timedelta(days=1)),
+        ]
+        result = self.evaluator.evaluate(9_000, history)
+        self.assertEqual(9_000, result.seven_day_average)
+        self.assertEqual(-10.0, result.trend_percent)
+        self.assertEqual("下落", result.trend_label)
+
 
 if __name__ == "__main__":
     unittest.main()

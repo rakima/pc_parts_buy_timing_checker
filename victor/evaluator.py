@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from victor.config import EvaluationSettings
-from victor.models import EvaluationResult, PriceRecord, TimingStatus
+from collections import defaultdict
+from datetime import timedelta
+
+from victor.models import DailyPriceSummary, EvaluationResult, PriceRecord, TimingStatus
 
 
 LABELS = {
@@ -32,20 +35,52 @@ class BuyTimingEvaluator:
         self.settings = settings
 
     def evaluate(self, current_price: int, history: list[PriceRecord]) -> EvaluationResult:
-        if not self._has_enough_history(history):
+        daily = self.summarize_daily(history)
+        if not self._has_enough_history(daily):
             return self._result(TimingStatus.INSUFFICIENT, current_price)
 
-        average = sum(item.price for item in history) / len(history)
+        average = sum(item.average_price for item in daily) / len(daily)
         difference = ((current_price - average) / average) * 100
         status = self._status_for_difference(difference)
-        return self._result(status, current_price, average, difference,
-                            min(item.price for item in history))
+        latest_day = max(item.day for item in daily)
+        recent = [item for item in daily if item.day >= latest_day - timedelta(days=6)]
+        earlier = [item for item in daily if item.day < latest_day - timedelta(days=6)]
+        seven_average = self._average_daily(recent)
+        trend_percent = None
+        trend_label = None
+        if earlier and seven_average is not None:
+            earlier_average = self._average_daily(earlier)
+            assert earlier_average is not None
+            trend_percent = ((seven_average - earlier_average) / earlier_average) * 100
+            trend_label = "上昇" if trend_percent > 2 else "下落" if trend_percent < -2 else "横ばい"
+        return EvaluationResult(
+            status=status, label=LABELS[status], message=MESSAGES[status],
+            current_price=current_price, average_price=average,
+            difference_percent=difference,
+            lowest_price=min(item.minimum_price for item in daily),
+            seven_day_average=seven_average, thirty_day_average=average,
+            trend_percent=trend_percent, trend_label=trend_label,
+        )
 
-    def _has_enough_history(self, history: list[PriceRecord]) -> bool:
+    def _has_enough_history(self, history: list[DailyPriceSummary]) -> bool:
         if len(history) < self.settings.minimum_history_count:
             return False
-        dates = [item.fetched_at for item in history]
+        dates = [item.day for item in history]
         return (max(dates) - min(dates)).days >= self.settings.minimum_history_days
+
+    @staticmethod
+    def summarize_daily(history: list[PriceRecord]) -> list[DailyPriceSummary]:
+        prices: dict[object, list[int]] = defaultdict(list)
+        for item in history:
+            prices[item.fetched_at.date()].append(item.price)
+        return [DailyPriceSummary(day, min(values), sum(values) / len(values), len(values))
+                for day, values in prices.items()]
+
+    @staticmethod
+    def _average_daily(summaries: list[DailyPriceSummary]) -> float | None:
+        if not summaries:
+            return None
+        return sum(item.average_price for item in summaries) / len(summaries)
 
     def _status_for_difference(self, difference: float) -> TimingStatus:
         if difference >= self.settings.bad_percent:
