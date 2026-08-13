@@ -5,6 +5,7 @@ import json
 import re
 import urllib.request
 from abc import ABC, abstractmethod
+from urllib.parse import urlparse
 
 
 class PriceFetchError(RuntimeError):
@@ -30,14 +31,17 @@ class GenericHtmlPriceFetcher(PriceFetcher):
         self.timeout_seconds = timeout_seconds
 
     def fetch(self, url: str) -> int:
+        content = self._download(url)
+        return self.extract_price(content)
+
+    def _download(self, url: str) -> str:
         request = urllib.request.Request(url, headers={"User-Agent": self.user_agent})
         try:
             with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
                 charset = response.headers.get_content_charset() or "utf-8"
-                content = response.read().decode(charset, errors="replace")
+                return response.read().decode(charset, errors="replace")
         except Exception as exc:
             raise PriceFetchError(f"ページを取得できませんでした: {exc}") from exc
-        return self.extract_price(content)
 
     @classmethod
     def extract_price(cls, content: str) -> int:
@@ -86,6 +90,46 @@ class GenericHtmlPriceFetcher(PriceFetcher):
         return price
 
 
+class TsukumoPriceFetcher(GenericHtmlPriceFetcher):
+    """Fetch a JPY price from a Tsukumo product detail page."""
+
+    SITE_NAME = "ツクモ"
+    HOST = "shop.tsukumo.co.jp"
+    PRODUCT_PATH = re.compile(r"^/goods/\d+/?$")
+    PRICE_META = re.compile(
+        r'<meta[^>]+property=["\']product:price:amount["\'][^>]+content=["\']([^"\']+)',
+        re.I,
+    )
+    CURRENCY_META = re.compile(
+        r'<meta[^>]+property=["\']product:price:currency["\'][^>]+content=["\']([^"\']+)',
+        re.I,
+    )
+
+    def fetch(self, url: str) -> int:
+        self.validate_url(url)
+        return self.extract_price(self._download(url))
+
+    @classmethod
+    def validate_url(cls, url: str) -> None:
+        parsed = urlparse(url)
+        if (parsed.scheme != "https" or parsed.hostname != cls.HOST
+                or not cls.PRODUCT_PATH.fullmatch(parsed.path)):
+            raise PriceFetchError(
+                "ツクモの商品URL（https://shop.tsukumo.co.jp/goods/数字）を指定してください"
+            )
+
+    @classmethod
+    def extract_price(cls, content: str) -> int:
+        unescaped = html.unescape(content)
+        currency = cls.CURRENCY_META.search(unescaped)
+        price = cls.PRICE_META.search(unescaped)
+        if currency and currency.group(1).upper() != "JPY":
+            raise PriceFetchError(f"未対応の通貨です: {currency.group(1)}")
+        if price:
+            return cls._parse_price(price.group(1))
+        return super().extract_price(unescaped)
+
+
 class PriceFetcherRegistry:
     def __init__(self, default_fetcher: PriceFetcher) -> None:
         self.default_fetcher = default_fetcher
@@ -96,4 +140,3 @@ class PriceFetcherRegistry:
 
     def get(self, site: str) -> PriceFetcher:
         return self._fetchers.get(site, self.default_fetcher)
-
