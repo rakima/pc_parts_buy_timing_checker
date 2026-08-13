@@ -6,9 +6,10 @@ import re
 import urllib.request
 from abc import ABC, abstractmethod
 from urllib.parse import urlparse
+from victor.fetch_errors import ParseFailure, classify_fetch_error
 
 
-class PriceFetchError(RuntimeError):
+class PriceFetchError(ParseFailure):
     pass
 
 
@@ -41,7 +42,7 @@ class GenericHtmlPriceFetcher(PriceFetcher):
                 charset = response.headers.get_content_charset() or "utf-8"
                 return response.read().decode(charset, errors="replace")
         except Exception as exc:
-            raise PriceFetchError(f"ページを取得できませんでした: {exc}") from exc
+            raise classify_fetch_error(exc, "商品ページ") from exc
 
     @classmethod
     def extract_price(cls, content: str) -> int:
@@ -59,7 +60,7 @@ class GenericHtmlPriceFetcher(PriceFetcher):
             price = cls._find_json_price(data)
             if price is not None:
                 return cls._parse_price(str(price))
-        raise PriceFetchError("ページ内の構造化価格情報を見つけられませんでした")
+        raise PriceFetchError("商品ページの価格構造が変更された可能性があります")
 
     @classmethod
     def _find_json_price(cls, value: object) -> object | None:
