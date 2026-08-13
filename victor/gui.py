@@ -55,6 +55,7 @@ ACCENT_COLORS = {
 }
 
 MINIMUM_RESEARCH_SECONDS = 3.0
+STATUS_IMAGE_SIZE = (440, 440)
 
 
 def wait_for_minimum_duration(
@@ -173,8 +174,14 @@ class VictorApp(ttk.Frame):
 
         content = ttk.Frame(right, style="Wood.TFrame")
         content.grid(row=1, column=0, sticky="nw", pady=(4, 0))
-        self.image_label = ttk.Label(content, anchor="center", style="Image.TLabel")
-        self.image_label.grid(row=0, column=0, rowspan=7, sticky="nw", padx=(0, 24))
+        self.image_frame = tk.Frame(
+            content, width=STATUS_IMAGE_SIZE[0], height=STATUS_IMAGE_SIZE[1],
+            background=COLORS["wood"], bd=0,
+        )
+        self.image_frame.grid(row=0, column=0, rowspan=7, sticky="nw", padx=(0, 24))
+        self.image_frame.grid_propagate(False)
+        self.image_label = ttk.Label(self.image_frame, anchor="center", style="Image.TLabel")
+        self.image_label.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
         self.values: dict[str, ttk.Label] = {}
         for row, (key, caption) in enumerate((
             ("status", "判定"), ("current", "現在価格"), ("average", "30日平均"),
@@ -358,7 +365,7 @@ class VictorApp(ttk.Frame):
         try:
             with Image.open(path) as original:
                 rendered = original.convert("RGB")
-                rendered.thumbnail((520, 440), Image.Resampling.LANCZOS)
+                rendered.thumbnail(STATUS_IMAGE_SIZE, Image.Resampling.LANCZOS)
                 image = ImageTk.PhotoImage(rendered, master=self.master)
             self.image_cache[status] = image
             return image
