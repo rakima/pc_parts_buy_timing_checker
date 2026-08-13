@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import tkinter as tk
+from datetime import datetime, timedelta
 from pathlib import Path
 from tkinter import messagebox
 
 from victor.catalogs import (CachedCatalogFetcher, CatalogFetcherRegistry,
-                             DosparaCatalogFetcher, TsukumoCatalogFetcher)
+                             DosparaCatalogFetcher, SofmapCatalogFetcher,
+                             TsukumoCatalogFetcher)
 from victor.config import SettingsManager
 from victor.database import VictorRepository
 from victor.details import (DosparaProductDetailFetcher, ProductDetailFetcherRegistry,
-                            TsukumoProductDetailFetcher)
+                            SofmapProductDetailFetcher, TsukumoProductDetailFetcher)
 from victor.evaluator import BuyTimingEvaluator
 from victor.external_history import KakakuPriceHistoryProvider
 from victor.fetchers import GenericHtmlPriceFetcher, PriceFetcherRegistry, TsukumoPriceFetcher
@@ -25,6 +27,11 @@ def main() -> None:
     try:
         settings = SettingsManager(root_directory / "config" / "settings.json").load()
         repository = VictorRepository(root_directory / "data" / "victor.db")
+        deleted_cache = repository.purge_external_prices_before(
+            datetime.now() - timedelta(days=settings.external_history_retention_days)
+        )
+        logger.info("外部価格履歴キャッシュ整理 deleted=%s retention_days=%s",
+                    deleted_cache, settings.external_history_retention_days)
         fetcher = GenericHtmlPriceFetcher(settings.user_agent, settings.request_timeout_seconds)
         registry = PriceFetcherRegistry(fetcher)
         registry.register(
@@ -46,6 +53,9 @@ def main() -> None:
         details.register("ドスパラ", DosparaProductDetailFetcher(
             settings.user_agent, settings.request_timeout_seconds
         ))
+        details.register("ソフマップ", SofmapProductDetailFetcher(
+            settings.user_agent, settings.request_timeout_seconds
+        ))
         service = PriceInvestigationService(
             repository, registry, details,
             KakakuPriceHistoryProvider(
@@ -61,6 +71,13 @@ def main() -> None:
         catalogs.register(
             DosparaCatalogFetcher.SITE_NAME,
             CachedCatalogFetcher(DosparaCatalogFetcher(
+                settings.user_agent, settings.request_timeout_seconds, logger
+            )),
+        )
+        registry.register("ソフマップ", fetcher)
+        catalogs.register(
+            SofmapCatalogFetcher.SITE_NAME,
+            CachedCatalogFetcher(SofmapCatalogFetcher(
                 settings.user_agent, settings.request_timeout_seconds, logger
             )),
         )

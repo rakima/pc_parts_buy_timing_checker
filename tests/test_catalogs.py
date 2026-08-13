@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from victor.catalogs import (CachedCatalogFetcher, CatalogFetcher, DosparaCatalogFetcher,
-                             TsukumoCatalogFetcher)
+                             SofmapCatalogFetcher, TsukumoCatalogFetcher)
 from victor.models import ProductCandidate
 
 
@@ -104,6 +104,21 @@ class DosparaCatalogFetcherTest(unittest.TestCase):
         self.assertEqual(109_800, items[0].price)
         self.assertEqual("ドスパラ", items[0].shop)
         self.assertEqual((("メモリ容量", "12GB"),), items[0].specifications)
+
+
+class SofmapCatalogFetcherTest(unittest.TestCase):
+    def test_parses_product_card(self) -> None:
+        html = '''<li><div class="mainbox">
+        <span class="brand">ASUS</span>
+        <a href="https://www.sofmap.com/product_detail.aspx?sku=101574599" class="product_name">グラフィックボード DUAL-RTX5070-O12G ［GeForce RTXシリーズ /12GB］</a>
+        <span class="price"><strong>&yen;153,800<i>(税込)</i></strong></span>
+        <span class="ic stock stocklast">在庫限り</span>
+        </div><!-- //end mainbox --></li>'''
+        items = SofmapCatalogFetcher.parse_catalog(html, "GPU")
+        self.assertEqual(1, len(items))
+        self.assertEqual(153_800, items[0].price)
+        self.assertEqual("ASUS", items[0].manufacturer)
+        self.assertEqual("在庫限り", items[0].stock_status)
 
 
 if __name__ == "__main__":
