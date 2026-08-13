@@ -408,6 +408,7 @@ class ProductSearchDialog(tk.Toplevel):
         self.on_add = on_add
         self.candidates: list[ProductCandidate] = []
         self.visible_candidates: list[ProductCandidate] = []
+        self.next_page = 1
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.title("商品検索 - ツクモ商品目録")
         self.geometry("900x620")
@@ -441,7 +442,12 @@ class ProductSearchDialog(tk.Toplevel):
         self.fetch_button = ttk.Button(
             frame, text="商品一覧を取得", style="Plate.TButton", command=self.fetch_catalog
         )
-        self.fetch_button.grid(row=1, column=2, rowspan=2, sticky="e", padx=(10, 0))
+        self.fetch_button.grid(row=1, column=2, sticky="e", padx=(10, 0))
+        self.next_button = ttk.Button(
+            frame, text="次ページを取得", style="Plate.TButton", command=self.fetch_next_page
+        )
+        self.next_button.grid(row=2, column=2, sticky="e", padx=(10, 0), pady=(6, 0))
+        self.next_button.state(["disabled"])
 
         search = ttk.Frame(frame)
         search.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(12, 8))
@@ -491,23 +497,32 @@ class ProductSearchDialog(tk.Toplevel):
         self.category.set(categories[0] if categories else "")
 
     def fetch_catalog(self) -> None:
+        self.next_page = 1
+        self.candidates = []
+        self._start_catalog_fetch(self.next_page, replace=True)
+
+    def fetch_next_page(self) -> None:
+        self._start_catalog_fetch(self.next_page, replace=False)
+
+    def _start_catalog_fetch(self, page: int, replace: bool) -> None:
         shop = self.shop.get()
         category = self.category.get()
         if not shop or not category:
             messagebox.showwarning("商品一覧", "店舗とカテゴリを選択してください。", parent=self)
             return
         self.fetch_button.state(["disabled"])
+        self.next_button.state(["disabled"])
         self.add_button.state(["disabled"])
         self.status.configure(text="ヴィクトルが商品を調査中……")
         self.logger.info("商品一覧取得開始 shop=%s category=%s", shop, category)
         threading.Thread(
-            target=self._fetch_worker, args=(shop, category), daemon=True
+            target=self._fetch_worker, args=(shop, category, page, replace), daemon=True
         ).start()
 
-    def _fetch_worker(self, shop: str, category: str) -> None:
+    def _fetch_worker(self, shop: str, category: str, page: int, replace: bool) -> None:
         try:
-            candidates = self.catalogs.get(shop).fetch(category)
-            self.events.put(("success", candidates))
+            candidates = self.catalogs.get(shop).fetch(category, page)
+            self.events.put(("success", (candidates, page, replace)))
         except Exception as exc:
             self.logger.exception("一覧取得失敗 shop=%s category=%s", shop, category)
             self.events.put(("error", str(exc)))
@@ -521,9 +536,19 @@ class ProductSearchDialog(tk.Toplevel):
                 self.fetch_button.state(["!disabled"])
                 self.add_button.state(["!disabled"])
                 if event == "success":
-                    self.candidates = list(payload)  # type: ignore[arg-type]
+                    candidates, page, replace = payload  # type: ignore[misc]
+                    if replace:
+                        self.candidates = list(candidates)
+                    else:
+                        known_urls = {candidate.url for candidate in self.candidates}
+                        self.candidates.extend(
+                            candidate for candidate in candidates if candidate.url not in known_urls
+                        )
+                    self.next_page = page + 1
+                    if candidates:
+                        self.next_button.state(["!disabled"])
                     self.logger.info("商品一覧取得成功 shop=%s category=%s count=%s",
-                                     self.shop.get(), self.category.get(), len(self.candidates))
+                                     self.shop.get(), self.category.get(), len(candidates))
                     self._filter_candidates()
                     if self.candidates:
                         self.status.configure(text=f"{len(self.candidates)}件を取得しました。")
