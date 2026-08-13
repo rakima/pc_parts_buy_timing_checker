@@ -24,6 +24,10 @@ class EvaluationSettings:
 class AppSettings:
     user_agent: str = "VictorPriceChecker/1.0 (manual desktop price check)"
     request_timeout_seconds: int = 15
+    external_history_cache_hours: int = 24
+    external_history_minimum_points: int = 5
+    external_history_retry_count: int = 1
+    external_history_retry_interval_seconds: float = 1.0
     evaluation: EvaluationSettings = field(default_factory=EvaluationSettings)
 
 

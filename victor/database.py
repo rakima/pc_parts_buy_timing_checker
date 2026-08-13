@@ -7,7 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from collections.abc import Iterator
 
-from victor.models import DailyPriceSummary, InventoryRecord, PriceRecord, Product
+from victor.models import (DailyPriceSummary, ExternalPricePoint, ExternalProductMapping,
+                           InventoryRecord, PriceHistoryType, PriceRecord, Product)
 
 
 class VictorRepository:
@@ -61,6 +62,27 @@ class VictorRepository:
                 );
                 CREATE INDEX IF NOT EXISTS idx_price_history_product_time
                     ON price_history(product_id, fetched_at);
+                CREATE TABLE IF NOT EXISTS product_external_mappings (
+                    product_id INTEGER NOT NULL,
+                    provider TEXT NOT NULL,
+                    external_id TEXT NOT NULL,
+                    external_url TEXT NOT NULL,
+                    match_method TEXT NOT NULL,
+                    matched_at TEXT NOT NULL,
+                    PRIMARY KEY(product_id, provider),
+                    FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS external_price_history (
+                    provider TEXT NOT NULL,
+                    external_product_id TEXT NOT NULL,
+                    price INTEGER NOT NULL CHECK(price >= 0),
+                    observed_at TEXT NOT NULL,
+                    price_type TEXT NOT NULL,
+                    fetched_at TEXT NOT NULL,
+                    PRIMARY KEY(provider, external_product_id, observed_at, price_type)
+                );
+                CREATE INDEX IF NOT EXISTS idx_external_history_product_time
+                    ON external_price_history(provider, external_product_id, fetched_at);
                 """
             )
             cursor = connection.execute("PRAGMA table_info(products)")
@@ -159,6 +181,56 @@ class VictorRepository:
                 (product_id, since.isoformat()),
             ).fetchall()
         return [self._price_from_row(row) for row in rows]
+
+    def get_external_mapping(self, product_id: int, provider: str) -> ExternalProductMapping | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM product_external_mappings WHERE product_id=? AND provider=?",
+                (product_id, provider),
+            ).fetchone()
+        if not row:
+            return None
+        return ExternalProductMapping(row["product_id"], row["provider"], row["external_id"],
+                                      row["external_url"], row["match_method"],
+                                      datetime.fromisoformat(row["matched_at"]))
+
+    def save_external_mapping(self, mapping: ExternalProductMapping) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO product_external_mappings VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(product_id, provider) DO UPDATE SET external_id=excluded.external_id, "
+                "external_url=excluded.external_url, match_method=excluded.match_method, "
+                "matched_at=excluded.matched_at",
+                (mapping.product_id, mapping.provider, mapping.external_id, mapping.external_url,
+                 mapping.match_method, mapping.matched_at.isoformat()),
+            )
+
+    def save_external_prices(self, points: list[ExternalPricePoint]) -> None:
+        if not points:
+            return
+        with self._connect() as connection:
+            connection.executemany(
+                "INSERT INTO external_price_history VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(provider, external_product_id, observed_at, price_type) "
+                "DO UPDATE SET price=excluded.price, fetched_at=excluded.fetched_at",
+                [(point.provider, point.external_product_id, point.price,
+                  point.observed_at.isoformat(), point.price_type.value,
+                  (point.fetched_at or datetime.now()).isoformat()) for point in points],
+            )
+
+    def get_external_prices(self, provider: str, external_id: str,
+                            since: datetime) -> list[ExternalPricePoint]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM external_price_history WHERE provider=? AND external_product_id=? "
+                "AND observed_at>=? ORDER BY observed_at DESC",
+                (provider, external_id, since.isoformat()),
+            ).fetchall()
+        return [ExternalPricePoint(
+            row["provider"], row["external_product_id"], row["price"],
+            datetime.fromisoformat(row["observed_at"]), PriceHistoryType(row["price_type"]),
+            datetime.fromisoformat(row["fetched_at"]),
+        ) for row in rows]
 
     def get_price_history(self, product_id: int, limit: int = 500) -> list[PriceRecord]:
         with self._connect() as connection:
