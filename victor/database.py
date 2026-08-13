@@ -51,9 +51,9 @@ class VictorRepository:
                     ON price_history(product_id, fetched_at);
                 """
             )
-            columns = {
-                row["name"] for row in connection.execute("PRAGMA table_info(products)")
-            }
+            cursor = connection.execute("PRAGMA table_info(products)")
+            columns = {row["name"] for row in cursor.fetchall()}
+            cursor.close()
             if "stock_status" not in columns:
                 connection.execute("ALTER TABLE products ADD COLUMN stock_status TEXT")
 
