@@ -24,6 +24,7 @@ class Product:
     site: str = "汎用ECサイト"
     enabled: bool = True
     stock_status: str | None = None
+    specifications: tuple[tuple[str, str], ...] = ()
     id: int | None = None
     created_at: datetime | None = None
 
@@ -38,6 +39,8 @@ class ProductCandidate:
     manufacturer: str | None = None
     model_name: str | None = None
     stock_status: str | None = None
+    description: str | None = None
+    specifications: tuple[tuple[str, str], ...] = ()
     fetched_at: datetime | None = None
 
 
