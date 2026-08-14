@@ -131,6 +131,15 @@ class DosparaProductDetailFetcher(StructuredProductDetailFetcher):
         return re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', '', html.unescape(value))).strip()
 
 
+class SofmapProductDetailFetcher(StructuredProductDetailFetcher):
+    def validate_url(self, url: str) -> None:
+        parsed = urlparse(url)
+        if (parsed.scheme != "https" or parsed.hostname not in ("sofmap.com", "www.sofmap.com")
+                or parsed.path != "/product_detail.aspx"
+                or not re.fullmatch(r"sku=\d+", parsed.query)):
+            raise ProductDetailFetchError("ソフマップの商品URLではありません")
+
+
 class ProductDetailFetcherRegistry:
     def __init__(self) -> None:
         self._fetchers: dict[str, ProductDetailFetcher] = {}

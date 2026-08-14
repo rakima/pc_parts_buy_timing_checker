@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import logging
 import csv
+import re
 import queue
 import threading
 import time
 import tkinter as tk
 from collections.abc import Callable
 from pathlib import Path
+from datetime import datetime
 from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageTk
@@ -16,8 +18,9 @@ from victor.catalogs import CatalogFetcherRegistry
 from victor.database import VictorRepository
 from victor.evaluator import LABELS, MESSAGES
 from victor.models import (DailyPriceSummary, EvaluationResult, Product, ProductCandidate,
-                           ProductMatch, TimingStatus, EvaluationSource)
-from victor.normalization import matches_product_name
+                           ProductMatch, TimingStatus, EvaluationSource,
+                           ExternalProductMapping)
+from victor.normalization import matches_product_name, normalize_product_name
 from victor.identity import identify_candidate, match_candidates
 from victor.specifications import format_specifications
 from victor.services import InvestigationResult, PriceInvestigationService
@@ -73,6 +76,24 @@ def wait_for_minimum_duration(
         sleeper(remaining)
 
 
+def group_products_by_category(products: list[Product]) -> list[tuple[str, list[Product]]]:
+    return [(category, [product for product in products if product.category == category])
+            for category in sorted({product.category for product in products})]
+
+
+def sort_product_candidates(candidates: list[ProductCandidate], key: str,
+                            reverse: bool = False) -> list[ProductCandidate]:
+    if key == "price":
+        value = lambda candidate: candidate.price
+    elif key == "manufacturer":
+        value = lambda candidate: normalize_product_name(candidate.manufacturer or "")
+    else:
+        value = lambda candidate: normalize_product_name(
+            format_specifications(candidate.specifications) or candidate.description or ""
+        )
+    return sorted(candidates, key=value, reverse=reverse)
+
+
 class VictorApp(ttk.Frame):
     def __init__(self, master: tk.Tk, repository: VictorRepository,
                  service: PriceInvestigationService, catalogs: CatalogFetcherRegistry,
@@ -86,6 +107,7 @@ class VictorApp(ttk.Frame):
         self.image_directory = image_directory
         self.logger = logger
         self.products: list[Product] = []
+        self.product_rows: list[Product | None] = []
         self.image_cache: dict[TimingStatus, ImageTk.PhotoImage] = {}
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self._configure_theme()
@@ -211,24 +233,38 @@ class VictorApp(ttk.Frame):
         self.investigate_button = ttk.Button(actions, text="価格を調査する", style="Plate.TButton", command=self.investigate)
         self.investigate_button.pack(side=tk.LEFT)
         ttk.Button(actions, text="価格履歴", style="Plate.TButton", command=self.show_history).pack(side=tk.LEFT, padx=6)
+        ttk.Button(actions, text="価格.com連携", style="Plate.TButton",
+                   command=self.show_external_mapping).pack(side=tk.LEFT, padx=6)
         self._show_status(TimingStatus.WAITING)
 
     def refresh_products(self, selected_id: int | None = None) -> None:
         self.products = self.repository.list_products()
         self.product_list.delete(0, tk.END)
+        self.product_rows = []
         selected_index = None
-        for index, product in enumerate(self.products):
-            prefix = "" if product.enabled else "[無効] "
-            self.product_list.insert(tk.END, f"{prefix}{product.name}")
-            if product.id == selected_id:
-                selected_index = index
+        for category, products in group_products_by_category(self.products):
+            self.product_list.insert(tk.END, f"【{category}】")
+            self.product_rows.append(None)
+            for product in products:
+                prefix = "" if product.enabled else "[無効] "
+                self.product_list.insert(tk.END, f"  {prefix}{product.name}")
+                self.product_rows.append(product)
+                if product.id == selected_id:
+                    selected_index = len(self.product_rows) - 1
         if selected_index is not None:
             self.product_list.selection_set(selected_index)
             self.product_list.event_generate("<<ListboxSelect>>")
 
     def selected_product(self) -> Product | None:
         selection = self.product_list.curselection()
-        return self.products[selection[0]] if selection else None
+        return self.product_rows[selection[0]] if selection else None
+
+    def show_external_mapping(self) -> None:
+        product = self.selected_product()
+        if product is None or product.id is None:
+            self.progress_label.configure(text="価格.com連携を確認する商品を選択してください。")
+            return
+        ExternalMappingDialog(self.master, self.repository, product, self.logger)
 
     def _on_product_selected(self, _event: object = None) -> None:
         product = self.selected_product()
@@ -547,6 +583,76 @@ class VictorApp(ttk.Frame):
         return "-" if value is None else f"{value:,.0f}円"
 
 
+class ExternalMappingDialog(tk.Toplevel):
+    PROVIDER = "KAKAKU"
+
+    def __init__(self, parent: tk.Tk, repository: VictorRepository,
+                 product: Product, logger: logging.Logger) -> None:
+        super().__init__(parent)
+        self.repository = repository
+        self.product = product
+        self.logger = logger
+        self.title("価格.com連携管理")
+        self.geometry("720x390")
+        self.resizable(False, False)
+        self.configure(background=COLORS["ink"])
+        self.transient(parent)
+        self.grab_set()
+        frame = ttk.Frame(self, padding=18)
+        frame.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(frame, text=product.name, style="Heading.TLabel", wraplength=670).grid(
+            row=0, column=0, columnspan=2, sticky="w", pady=(0, 14)
+        )
+        mapping = repository.get_external_mapping(product.id or 0, self.PROVIDER)
+        status = repository.get_external_provider_status(product.id or 0, self.PROVIDER)
+        points = repository.get_external_prices(
+            self.PROVIDER, mapping.external_id, datetime(1970, 1, 1)
+        ) if mapping else []
+        self.url = tk.StringVar(value=mapping.external_url if mapping else "")
+        values = (
+            ("照合方法", mapping.match_method if mapping else "未設定"),
+            ("キャッシュ", f"{len(points)}件"),
+            ("最終取得", points[0].fetched_at.strftime("%Y-%m-%d %H:%M")
+             if points and points[0].fetched_at else "-"),
+            ("連携状態", str(status["status"]) if status else "未実行"),
+            ("状態詳細", str(status["message"]) if status else "-"),
+        )
+        for row, (caption, value) in enumerate(values, 1):
+            ttk.Label(frame, text=caption).grid(row=row, column=0, sticky="w", pady=4)
+            ttk.Label(frame, text=value, wraplength=540).grid(row=row, column=1, sticky="w", pady=4)
+        ttk.Label(frame, text="価格.com URL").grid(row=6, column=0, sticky="w", pady=6)
+        ttk.Entry(frame, textvariable=self.url, width=70).grid(row=6, column=1, sticky="ew", pady=6)
+        ttk.Label(frame, text="次回の価格調査時に自動検索または再取得されます。",
+                  style="PanelMuted.TLabel").grid(row=7, column=0, columnspan=2, sticky="w")
+        actions = ttk.Frame(frame)
+        actions.grid(row=8, column=0, columnspan=2, sticky="e", pady=(18, 0))
+        ttk.Button(actions, text="対応付けを解除", style="Plate.TButton",
+                   command=self._delete).pack(side=tk.LEFT)
+        ttk.Button(actions, text="URLを手動設定", style="Plate.TButton",
+                   command=self._save).pack(side=tk.LEFT, padx=6)
+        ttk.Button(actions, text="閉じる", style="Plate.TButton",
+                   command=self.destroy).pack(side=tk.LEFT)
+
+    def _delete(self) -> None:
+        self.repository.delete_external_mapping(self.product.id or 0, self.PROVIDER)
+        self.logger.info("価格.com対応付け解除 product=%s", self.product.name)
+        self.destroy()
+
+    def _save(self) -> None:
+        match = re.fullmatch(r"https://kakaku\.com/item/(K\d{10})/?", self.url.get().strip())
+        if not match:
+            messagebox.showwarning("価格.com連携", "価格.comの商品URLを入力してください。", parent=self)
+            return
+        self.repository.delete_external_mapping(self.product.id or 0, self.PROVIDER)
+        self.repository.save_external_mapping(ExternalProductMapping(
+            self.product.id or 0, self.PROVIDER, match.group(1), self.url.get().strip(),
+            "manual", datetime.now(),
+        ))
+        self.logger.info("価格.com対応付け手動設定 product=%s external_id=%s",
+                         self.product.name, match.group(1))
+        self.destroy()
+
+
 class ProductSearchDialog(tk.Toplevel):
     def __init__(self, parent: tk.Tk, catalogs: CatalogFetcherRegistry,
                  logger: logging.Logger,
@@ -611,8 +717,11 @@ class ProductSearchDialog(tk.Toplevel):
         )
         self.results.heading("name", text="商品名")
         self.results.heading("price", text="現在価格")
-        self.results.heading("specifications", text="主な仕様")
-        self.results.heading("manufacturer", text="メーカー")
+        self.results.heading("price", text="現在価格", command=lambda: self._sort_results("price"))
+        self.results.heading("specifications", text="主な仕様",
+                             command=lambda: self._sort_results("specifications"))
+        self.results.heading("manufacturer", text="メーカー",
+                             command=lambda: self._sort_results("manufacturer"))
         self.results.heading("stock", text="在庫・出荷")
         self.results.column("name", width=410)
         self.results.column("price", width=100, anchor=tk.E)
@@ -641,6 +750,7 @@ class ProductSearchDialog(tk.Toplevel):
         )
         self.add_button.grid(row=0, column=3)
         self._update_categories()
+        self.sort_reverse: dict[str, bool] = {}
         self.after(100, self._process_events)
 
     def _update_categories(self, _event: object = None) -> None:
@@ -728,19 +838,26 @@ class ProductSearchDialog(tk.Toplevel):
             candidate for candidate in self.candidates
             if matches_product_name(candidate.name, query)
         ]
-        self.results.delete(*self.results.get_children())
-        for index, candidate in enumerate(self.visible_candidates):
-            self.results.insert("", tk.END, iid=str(index), values=(
-                candidate.name,
-                f"{candidate.price:,}円",
-                format_specifications(candidate.specifications) or candidate.description or "-",
-                candidate.manufacturer or "-",
-                candidate.stock_status or "-",
-            ))
+        self._render_candidates()
         if query:
             self.status.configure(
                 text=f"{len(self.visible_candidates)}件 / 取得{len(self.candidates)}件"
             )
+
+    def _sort_results(self, key: str) -> None:
+        reverse = self.sort_reverse.get(key, False)
+        self.visible_candidates = sort_product_candidates(self.visible_candidates, key, reverse)
+        self.sort_reverse[key] = not reverse
+        self._render_candidates()
+
+    def _render_candidates(self) -> None:
+        self.results.delete(*self.results.get_children())
+        for index, candidate in enumerate(self.visible_candidates):
+            self.results.insert("", tk.END, iid=str(index), values=(
+                candidate.name, f"{candidate.price:,}円",
+                format_specifications(candidate.specifications) or candidate.description or "-",
+                candidate.manufacturer or "-", candidate.stock_status or "-",
+            ))
 
     def add_selected(self) -> None:
         selection = self.results.selection()

@@ -62,6 +62,15 @@ class VictorRepositoryTest(unittest.TestCase):
             "KAKAKU", mapping.external_id, datetime(2026, 8, 1)
         )
         self.assertEqual(88_000, external[0].price)
+        self.repository.save_external_provider_status(
+            product.id or 0, "KAKAKU", "SUCCESS", "履歴取得成功", 1,
+            datetime(2026, 8, 10),
+        )
+        status = self.repository.get_external_provider_status(product.id or 0, "KAKAKU")
+        self.assertEqual("SUCCESS", status["status"] if status else None)
+        self.assertEqual(1, self.repository.purge_external_prices_before(datetime(2026, 8, 10)))
+        self.repository.delete_external_mapping(product.id or 0, "KAKAKU")
+        self.assertIsNone(self.repository.get_external_mapping(product.id or 0, "KAKAKU"))
 
         self.repository.delete_product(product.id or 0)
         self.assertEqual([], self.repository.list_products())

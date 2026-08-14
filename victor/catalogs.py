@@ -5,6 +5,7 @@ import logging
 import re
 import time
 import urllib.request
+import urllib.parse
 from abc import ABC, abstractmethod
 from datetime import datetime
 from html.parser import HTMLParser
@@ -146,6 +147,80 @@ class DosparaCatalogFetcher(CatalogFetcher):
                 ))
             except ValueError as exc:
                 logger.warning("商品解析失敗 shop=ドスパラ error=%s", exc)
+        return candidates
+
+    @staticmethod
+    def _clean(value: str) -> str:
+        return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html.unescape(value))).strip()
+
+
+class SofmapCatalogFetcher(CatalogFetcher):
+    SITE_NAME = "ソフマップ"
+    CATEGORY_IDS = {
+        "GPU": "001030060010", "CPU": "001030010",
+        "SSD": "001030040020", "メモリ": "001030030",
+    }
+
+    def __init__(self, user_agent: str, timeout_seconds: int = 15,
+                 logger: logging.Logger | None = None) -> None:
+        self.user_agent = user_agent
+        self.timeout_seconds = timeout_seconds
+        self.logger = logger or logging.getLogger("victor.catalogs")
+
+    @property
+    def supported_categories(self) -> tuple[str, ...]:
+        return tuple(self.CATEGORY_IDS)
+
+    def fetch(self, category: str, page: int = 1) -> list[ProductCandidate]:
+        if category not in self.CATEGORY_IDS or page < 1:
+            raise CatalogFetchError(f"ソフマップの未対応カテゴリまたはページです: {category}")
+        query = urllib.parse.urlencode({
+            "dispcnt": 24, "gid": self.CATEGORY_IDS[category], "order_by": "DEFAULT",
+            "pno": page, "product_type": "ALL",
+        })
+        url = f"https://www.sofmap.com/product_list_parts.aspx?{query}"
+        try:
+            request = urllib.request.Request(url, headers={"User-Agent": self.user_agent})
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                content = response.read().decode("cp932", errors="replace")
+        except Exception as exc:
+            raise classify_fetch_error(exc, "商品一覧") from exc
+        candidates = self.parse_catalog(content, category, self.logger)
+        if not candidates:
+            raise ParseFailure("ソフマップの商品一覧を解析できませんでした")
+        return candidates
+
+    @classmethod
+    def parse_catalog(cls, content: str, category: str,
+                      logger: logging.Logger | None = None) -> list[ProductCandidate]:
+        logger = logger or logging.getLogger("victor.catalogs")
+        blocks = re.findall(r'<li[^>]*>\s*<div class="mainbox">(.*?)</div><!-- //end mainbox -->',
+                            content, re.I | re.S)
+        candidates: list[ProductCandidate] = []
+        for block in blocks:
+            try:
+                product = re.search(
+                    r'<a href="(https://www\.sofmap\.com/product_detail\.aspx\?sku=\d+)" '
+                    r'class="product_name">(.*?)</a>', block, re.I | re.S,
+                )
+                price = re.search(r'<span class="price"><strong>&yen;([\d,]+)', block, re.I)
+                brand = re.search(r'<span class="brand">(.*?)</span>', block, re.I | re.S)
+                stock = re.search(r'<span class="ic stock[^"\']*">(.*?)</span>', block, re.I | re.S)
+                if not product or not price:
+                    raise ValueError("商品名・URL・価格が不足しています")
+                name = cls._clean(product.group(2))
+                description = re.sub(r"^[^［]*", "", name).strip() or None
+                candidates.append(ProductCandidate(
+                    name, int(price.group(1).replace(",", "")), product.group(1),
+                    cls.SITE_NAME, category,
+                    manufacturer=cls._clean(brand.group(1)) if brand else None,
+                    stock_status=cls._clean(stock.group(1)) if stock else None,
+                    description=description,
+                    specifications=extract_specifications(category, name, description or ""),
+                    fetched_at=datetime.now(),
+                ))
+            except ValueError as exc:
+                logger.warning("商品解析失敗 shop=ソフマップ error=%s", exc)
         return candidates
 
     @staticmethod

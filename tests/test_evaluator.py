@@ -109,6 +109,19 @@ class BuyTimingEvaluatorTest(unittest.TestCase):
         result = self.evaluator.evaluate(9_000, [], external_history=external)
         self.assertEqual(EvaluationSource.INSUFFICIENT_DATA, result.evaluation_source)
 
+    def test_market_history_uses_same_threshold_boundaries(self) -> None:
+        external = [ExternalPricePoint("KAKAKU", "K1", 10_000,
+                    datetime(2026, 8, day)) for day in range(1, 6)]
+        cases = ((10_500, TimingStatus.BAD), (10_499, TimingStatus.NEUTRAL),
+                 (9_500, TimingStatus.GOOD), (9_000, TimingStatus.BUY),
+                 (8_500, TimingStatus.BEST_BUY))
+        for price, expected in cases:
+            with self.subTest(price=price):
+                result = self.evaluator.evaluate(price, [], external_history=external)
+                self.assertEqual(expected, result.status)
+                self.assertEqual(EvaluationSource.KAKAKU_MARKET_HISTORY,
+                                 result.evaluation_source)
+
 
 if __name__ == "__main__":
     unittest.main()

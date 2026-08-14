@@ -28,6 +28,7 @@ class AppSettings:
     external_history_minimum_points: int = 5
     external_history_retry_count: int = 1
     external_history_retry_interval_seconds: float = 1.0
+    external_history_retention_days: int = 90
     evaluation: EvaluationSettings = field(default_factory=EvaluationSettings)
 
 

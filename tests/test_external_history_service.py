@@ -65,6 +65,8 @@ class ExternalHistoryServiceTest(unittest.TestCase):
             self.product, datetime(2026, 8, 14), datetime(2026, 7, 15)
         )
         self.assertEqual([], result)
+        status = self.repository.get_external_provider_status(self.product.id or 0, "KAKAKU")
+        self.assertEqual("ERROR", status["status"] if status else None)
 
 
 if __name__ == "__main__":

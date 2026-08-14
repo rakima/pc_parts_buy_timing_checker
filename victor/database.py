@@ -83,6 +83,16 @@ class VictorRepository:
                 );
                 CREATE INDEX IF NOT EXISTS idx_external_history_product_time
                     ON external_price_history(provider, external_product_id, fetched_at);
+                CREATE TABLE IF NOT EXISTS external_provider_status (
+                    product_id INTEGER NOT NULL,
+                    provider TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    item_count INTEGER NOT NULL DEFAULT 0,
+                    checked_at TEXT NOT NULL,
+                    PRIMARY KEY(product_id, provider),
+                    FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
+                );
                 """
             )
             cursor = connection.execute("PRAGMA table_info(products)")
@@ -204,6 +214,58 @@ class VictorRepository:
                 (mapping.product_id, mapping.provider, mapping.external_id, mapping.external_url,
                  mapping.match_method, mapping.matched_at.isoformat()),
             )
+
+    def delete_external_mapping(self, product_id: int, provider: str) -> None:
+        with self._connect() as connection:
+            mapping = connection.execute(
+                "SELECT external_id FROM product_external_mappings WHERE product_id=? AND provider=?",
+                (product_id, provider),
+            ).fetchone()
+            connection.execute(
+                "DELETE FROM product_external_mappings WHERE product_id=? AND provider=?",
+                (product_id, provider),
+            )
+            connection.execute(
+                "DELETE FROM external_provider_status WHERE product_id=? AND provider=?",
+                (product_id, provider),
+            )
+            if mapping:
+                references = connection.execute(
+                    "SELECT COUNT(*) AS count FROM product_external_mappings "
+                    "WHERE provider=? AND external_id=?", (provider, mapping["external_id"]),
+                ).fetchone()["count"]
+                if references == 0:
+                    connection.execute(
+                        "DELETE FROM external_price_history WHERE provider=? AND external_product_id=?",
+                        (provider, mapping["external_id"]),
+                    )
+
+    def save_external_provider_status(self, product_id: int, provider: str, status: str,
+                                      message: str, item_count: int, checked_at: datetime) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO external_provider_status VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(product_id, provider) DO UPDATE SET status=excluded.status, "
+                "message=excluded.message, item_count=excluded.item_count, checked_at=excluded.checked_at",
+                (product_id, provider, status, message, item_count, checked_at.isoformat()),
+            )
+
+    def get_external_provider_status(self, product_id: int, provider: str) -> dict[str, object] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM external_provider_status WHERE product_id=? AND provider=?",
+                (product_id, provider),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def purge_external_prices_before(self, before: datetime) -> int:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM external_price_history WHERE observed_at < ?", (before.isoformat(),)
+            )
+            deleted = cursor.rowcount
+            cursor.close()
+        return deleted
 
     def save_external_prices(self, points: list[ExternalPricePoint]) -> None:
         if not points:
