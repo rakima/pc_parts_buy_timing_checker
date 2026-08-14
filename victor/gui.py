@@ -94,6 +94,12 @@ def sort_product_candidates(candidates: list[ProductCandidate], key: str,
     return sorted(candidates, key=value, reverse=reverse)
 
 
+def evaluation_source_note(source: EvaluationSource) -> str:
+    if source == EvaluationSource.KAKAKU_MARKET_HISTORY:
+        return "※ 自前履歴が不足しているため、価格.comの市場最安値履歴を参考にしています。"
+    return ""
+
+
 class VictorApp(ttk.Frame):
     def __init__(self, master: tk.Tk, repository: VictorRepository,
                  service: PriceInvestigationService, catalogs: CatalogFetcherRegistry,
@@ -137,6 +143,8 @@ class VictorApp(ttk.Frame):
                         font=("Yu Gothic UI", 11, "bold"))
         style.configure("Quote.TLabel", background=COLORS["wood"], foreground=COLORS["gold_bright"],
                         font=("Yu Mincho", 12))
+        style.configure("SourceNote.TLabel", background=COLORS["wood"], foreground=COLORS["muted"],
+                        font=("Yu Gothic UI", 9))
         style.configure("Plate.TButton", background=COLORS["brass_dark"], foreground="#f1e4c1",
                         borderwidth=1, relief="raised", padding=(12, 7), font=("Yu Gothic UI", 10, "bold"))
         style.map("Plate.TButton",
@@ -195,6 +203,7 @@ class VictorApp(ttk.Frame):
         self.result_panel = right
         right.grid(row=1, column=1, sticky="nsew")
         right.columnconfigure(0, weight=1)
+        right.rowconfigure(5, weight=1)
         self.detail_title = ttk.Label(right, text="商品を選択してください", style="Heading.TLabel")
         self.detail_title.grid(row=0, column=0, sticky="w", pady=(0, 8))
 
@@ -235,6 +244,10 @@ class VictorApp(ttk.Frame):
         ttk.Button(actions, text="価格履歴", style="Plate.TButton", command=self.show_history).pack(side=tk.LEFT, padx=6)
         ttk.Button(actions, text="価格.com連携", style="Plate.TButton",
                    command=self.show_external_mapping).pack(side=tk.LEFT, padx=6)
+        self.source_note_label = ttk.Label(
+            right, text="", style="SourceNote.TLabel", wraplength=680, justify=tk.RIGHT
+        )
+        self.source_note_label.grid(row=6, column=0, sticky="se", pady=(12, 0))
         self._show_status(TimingStatus.WAITING)
 
     def refresh_products(self, selected_id: int | None = None) -> None:
@@ -407,6 +420,9 @@ class VictorApp(ttk.Frame):
             text=result.message if result else MESSAGES[status],
             style=f"{status.value}.Quote.TLabel",
         )
+        self.source_note_label.configure(
+            text=evaluation_source_note(result.evaluation_source) if result else ""
+        )
         if result:
             self.values["current"].configure(text=f"{result.current_price:,}円")
             self.values["average"].configure(text=self._yen(result.average_price))
@@ -430,10 +446,6 @@ class VictorApp(ttk.Frame):
                 EvaluationSource.INSUFFICIENT_DATA: "データ不足",
             }
             self.values["source"].configure(text=source_labels[result.evaluation_source])
-            if result.evaluation_source == EvaluationSource.KAKAKU_MARKET_HISTORY:
-                self.message_label.configure(
-                    text=result.message + "\n※ 自前履歴が不足しているため、価格.comの市場最安値履歴を参考にしています。"
-                )
         image = self._load_image(status)
         self.image_label.configure(image=image, text="" if image else f"ヴィクトル\n{LABELS[status]}")
         self.image_label.image = image

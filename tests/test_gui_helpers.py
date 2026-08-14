@@ -1,7 +1,8 @@
 import unittest
 
-from victor.gui import group_products_by_category, sort_product_candidates
-from victor.models import Product, ProductCandidate
+from victor.gui import (evaluation_source_note, group_products_by_category,
+                        sort_product_candidates)
+from victor.models import EvaluationSource, Product, ProductCandidate
 
 
 class GuiHelperTest(unittest.TestCase):
@@ -22,6 +23,13 @@ class GuiHelperTest(unittest.TestCase):
                          sort_product_candidates(products, "manufacturer")])
         self.assertEqual(["12GB", "8GB"], [item.specifications[0][1] for item in
                          sort_product_candidates(products, "specifications")])
+
+    def test_shows_note_only_for_kakaku_market_history(self) -> None:
+        self.assertIn("価格.com", evaluation_source_note(
+            EvaluationSource.KAKAKU_MARKET_HISTORY
+        ))
+        self.assertEqual("", evaluation_source_note(EvaluationSource.OWN_HISTORY))
+        self.assertEqual("", evaluation_source_note(EvaluationSource.INSUFFICIENT_DATA))
 
 
 if __name__ == "__main__":
