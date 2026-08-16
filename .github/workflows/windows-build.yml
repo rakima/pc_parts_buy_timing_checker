@@ -2,6 +2,14 @@ name: Windows build
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - "**.py"
+      - "assets/images/**"
+      - "requirements*.txt"
+      - "Victor.spec"
+      - "scripts/build_release.ps1"
+      - ".github/workflows/windows-build.yml"
   push:
     tags:
       - "v*"
