@@ -1,0 +1,42 @@
+name: Windows build
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "**.py"
+      - "assets/images/**"
+      - "requirements*.txt"
+      - "Victor.spec"
+      - "scripts/build_release.ps1"
+      - ".github/workflows/windows-build.yml"
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Test
+        run: python -m unittest discover
+      - name: Build release archive
+        shell: pwsh
+        run: .\scripts\build_release.ps1 -SkipInstall
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Victor-windows-x64
+          path: |
+            dist/Victor-v*-windows-x64.zip
+            dist/Victor-v*-windows-x64.zip.sha256
+          if-no-files-found: error
