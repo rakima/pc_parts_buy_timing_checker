@@ -46,6 +46,30 @@ python main.py
 
 初回起動時に `data/victor.db`、`config/settings.json`、`logs/victor.log` が自動作成されます。
 
+## Windows版のビルドと配布
+
+Python 3.13 x64の公式版（`tkinter`を含む環境）で、開発用依存関係の導入、テスト、PyInstallerビルド、ZIP作成、SHA-256生成をまとめて実行します。`tkinter`を同梱できない環境ではビルドを失敗させ、不完全な成果物を公開しません。
+
+```powershell
+.\scripts\build_release.ps1
+```
+
+成果物は`dist/Victor-v0.1.0-windows-x64.zip`です。タグ`v*`をpushした場合、GitHub Actionsも同じスクリプトを実行し、Windows成果物を保存します。公開前にZIPを展開したクリーンなWindows環境で、起動、商品登録、価格調査、履歴表示を確認してください。
+
+詳細な公開チェックリストは`docs/RELEASING.md`を参照してください。
+
+配布版のDB、設定、ログは`%LOCALAPPDATA%\VictorPriceChecker`へ保存します。ソースから起動する場合は従来どおりリポジトリ内の`data`、`config`、`logs`を使用します。
+
+### バックアップ
+
+配布版を終了してから次を実行すると、デスクトップの`VictorBackup`へDB・設定・ログをまとめてコピーします。
+
+```powershell
+.\scripts\backup_data.ps1
+```
+
+復元時は、バックアップ内の`VictorPriceChecker`相当の内容を`%LOCALAPPDATA%\VictorPriceChecker`へ戻してください。バージョン更新前には必ずバックアップしてください。
+
 ## 商品登録と価格調査
 
 1. `商品を探す` を押します。
@@ -117,6 +141,8 @@ Amazon、パソコン工房などのサイト専用アダプターは未実装�
 - ログ: `logs/victor.log`
 - キャラクター画像: `assets/images/`
 
+配布版では上記のうちDB・設定・ログを`%LOCALAPPDATA%\VictorPriceChecker`以下へ保存します。
+
 画像が存在しない、または読み込めない場合はテキストのプレースホルダーを表示します。
 判定後は「時期が悪い」の暗赤から「絶好の買い時」のゴールドまで、結果に応じて判定欄・セリフ・パネル枠のアクセント色が変わります。
 
@@ -128,9 +154,7 @@ python -m unittest discover -v
 
 ## 今後の予定
 
-- Amazon、ドスパラ、パソコン工房などの価格取得アダプター
-- 商品目録の複数ページ一括取得
-- 7日・30日移動平均と短期トレンド
-- 過去最安値・最高値、日次最安値・平均価格
+- Amazon、パソコン工房などの価格取得アダプター
+- 商品目録の全ページ取得
+- リリース署名と自動アップデート
 - セール、在庫、新製品発売予定の考慮
-- 価格推移グラフ
