@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import tkinter as tk
 from datetime import datetime, timedelta
-from pathlib import Path
 from tkinter import messagebox
 
 from victor.catalogs import (CachedCatalogFetcher, CatalogFetcherRegistry,
@@ -17,16 +16,18 @@ from victor.external_history import KakakuPriceHistoryProvider
 from victor.fetchers import GenericHtmlPriceFetcher, PriceFetcherRegistry, TsukumoPriceFetcher
 from victor.gui import VictorApp
 from victor.logging_config import configure_logging
+from victor.paths import resource_root, user_data_root
 from victor.services import PriceInvestigationService
 
 
 def main() -> None:
-    root_directory = Path(__file__).resolve().parent
-    logger = configure_logging(root_directory / "logs")
+    resources = resource_root()
+    user_data = user_data_root()
+    logger = configure_logging(user_data / "logs")
     logger.info("アプリ起動")
     try:
-        settings = SettingsManager(root_directory / "config" / "settings.json").load()
-        repository = VictorRepository(root_directory / "data" / "victor.db")
+        settings = SettingsManager(user_data / "config" / "settings.json").load()
+        repository = VictorRepository(user_data / "data" / "victor.db")
         deleted_cache = repository.purge_external_prices_before(
             datetime.now() - timedelta(days=settings.external_history_retention_days)
         )
@@ -83,7 +84,7 @@ def main() -> None:
         )
         root = tk.Tk()
         VictorApp(root, repository, service, catalogs,
-                  root_directory / "assets" / "images", logger)
+                  resources / "assets" / "images", logger)
         root.mainloop()
     except Exception as exc:
         logger.exception("例外")
