@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Windows 11 x64
-- Python 3.13 x64 (`tkinter`を含む公式版)
+- Python 3.13 x64 (`tkinter`を含む公式版。Python 3.14は使用不可)
 - GitHub CLI
 - クリーンなGit作業ツリー
 
