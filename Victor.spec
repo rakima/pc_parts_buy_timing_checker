@@ -1,11 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from PyInstaller.utils.hooks import collect_submodules
+
+
+tkinter_hiddenimports = collect_submodules("tkinter")
+
 a = Analysis(
     ["main.py"],
     pathex=[],
     binaries=[],
     datas=[("assets/images", "assets/images")],
-    hiddenimports=[],
+    # Python 3.14 distributions can expose tkinter at runtime without letting
+    # PyInstaller's static analysis discover it from the entry point.
+    hiddenimports=tkinter_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
